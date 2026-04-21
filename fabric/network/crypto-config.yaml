@@ -1,0 +1,14 @@
+OrdererOrgs:
+  - Name: Orderer
+    Domain: ficct.edu.bo
+    Specs:
+      - Hostname: orderer
+
+PeerOrgs:
+  - Name: FICCTOrg
+    Domain: ficct.edu.bo
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1

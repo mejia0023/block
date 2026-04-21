@@ -1,0 +1,22 @@
+{
+  "name": "ficct-voting-chaincode",
+  "version": "1.0.0",
+  "description": "FICCT e-voting smart contract for Hyperledger Fabric",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "build:start": "npm run build && npm run start"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "fabric-contract-api": "^2.5.0",
+    "fabric-shim": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
