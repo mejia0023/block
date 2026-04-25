@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Search, UserPlus, Pencil, Trash2, AlertCircle } from 'lucide-react';
 import api from '../../api/axios.config';
 import type { CareerType, RoleType, User } from '../../types';
 
@@ -14,19 +15,17 @@ const CAREER_LABELS: Record<CareerType, string> = {
   SISTEMAS: 'Sistemas', INFORMATICA: 'Informática', REDES: 'Redes',
 };
 
-const ROLE_BADGE: Partial<Record<RoleType, string>> = {
-  ADMIN:         'bg-amber-100 text-amber-800',
-  ADMINISTRADOR: 'bg-amber-100 text-amber-800',
-  DOCENTE:       'bg-blue-100 text-blue-800',
-  ESTUDIANTE:    'bg-green-50 text-green-800',
-  VOTANTE:       'bg-green-50 text-green-800',
-  AUDITOR:       'bg-indigo-100 text-indigo-800',
+const ROLE_STYLE: Partial<Record<RoleType, { color: string; bg: string }>> = {
+  ADMIN:         { color: 'var(--status-closed)',  bg: 'var(--status-closed-bg)' },
+  ADMINISTRADOR: { color: 'var(--status-closed)',  bg: 'var(--status-closed-bg)' },
+  DOCENTE:       { color: 'var(--status-sched)',   bg: 'var(--status-sched-bg)' },
+  ESTUDIANTE:    { color: 'var(--status-active)',  bg: 'var(--status-active-bg)' },
+  VOTANTE:       { color: 'var(--status-active)',  bg: 'var(--status-active-bg)' },
+  AUDITOR:       { color: 'var(--status-counted)', bg: 'var(--status-counted-bg)' },
 };
 
 const EMPTY_FORM = { ru: '', name: '', email: '', password: '', career: 'SISTEMAS' as CareerType, role: 'VOTANTE' as RoleType };
 type FormMode = { type: 'create' } | { type: 'edit'; user: User };
-
-const inputCls = 'px-2.5 py-2 border border-slate-200 rounded-lg text-[13px]';
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -96,120 +95,243 @@ export default function UsersPage() {
     return matchSearch && (!filterRole || u.role === filterRole);
   });
 
-  if (loading) return <p className="p-6">Cargando…</p>;
-  if (error) return <p className="text-red-500 text-xs p-6">{error}</p>;
+  const inputBase: React.CSSProperties = {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-1)',
+    outline: 'none',
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-48" style={{ color: 'var(--text-3)' }}>
+      <div className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+    </div>
+  );
+
+  if (error) return (
+    <div className="flex items-center gap-2 rounded-xl px-5 py-4 text-sm" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
+      <AlertCircle size={15} />
+      {error}
+    </div>
+  );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-semibold">Gestión de Usuarios</h2>
-        <button className="bg-indigo-500 text-white border-none px-4 py-2 rounded-md cursor-pointer text-[13px] font-semibold" onClick={openCreate}>
-          + Nuevo usuario
+    <div className="flex flex-col gap-6 animate-slide-up">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>Gestión de Usuarios</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-2)' }}>{users.length} usuario{users.length !== 1 ? 's' : ''} registrados</p>
+        </div>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90"
+          style={{ background: 'var(--brand)' }}
+        >
+          <UserPlus size={14} />
+          Nuevo usuario
         </button>
       </div>
 
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <input
-          className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg text-[13px]"
-          placeholder="Buscar por R.U., nombre o email…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* Filters */}
+      <div
+        className="flex flex-wrap gap-3 p-4 rounded-2xl"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+      >
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-3)' }} />
+          <input
+            className="w-full pl-8 pr-3 py-2 rounded-lg text-sm"
+            style={inputBase}
+            placeholder="Buscar por R.U., nombre o email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <select
-          className="px-2.5 py-2 border border-slate-200 rounded-lg text-[13px] bg-white"
+          className="px-3 py-2 rounded-lg text-sm cursor-pointer"
+          style={inputBase}
           value={filterRole}
           onChange={(e) => setFilterRole(e.target.value as RoleType | '')}
         >
           <option value="">Todos los roles</option>
           {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
         </select>
-        <span className="text-xs text-slate-500 ml-auto">{filtered.length} usuario{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="flex items-center text-xs px-3 rounded-lg" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
+          {filtered.length} resultado{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse bg-white rounded-xl overflow-hidden shadow-sm">
-          <thead>
-            <tr>
-              {['R.U.', 'Nombre', 'Email', 'Carrera', 'Rol', 'Votó', 'Estado', 'Acciones'].map((h) => (
-                <th key={h} className="bg-slate-50 text-left px-3.5 py-2.5 text-xs font-semibold text-slate-500 border-b border-slate-200 whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={8} className="text-center text-slate-400 p-6">Sin resultados</td></tr>
-            )}
-            {filtered.map((user) => (
-              <tr key={user.id} className={!user.isEnabled ? 'opacity-50' : ''}>
-                <td className="px-3.5 py-2.5 text-[13px] border-b border-slate-100"><code>{user.ru}</code></td>
-                <td className="px-3.5 py-2.5 text-[13px] border-b border-slate-100">{user.name}</td>
-                <td className="px-3.5 py-2.5 text-[13px] border-b border-slate-100">{user.email}</td>
-                <td className="px-3.5 py-2.5 text-[13px] border-b border-slate-100">{CAREER_LABELS[user.career]}</td>
-                <td className="px-3.5 py-2.5 border-b border-slate-100">
-                  <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${ROLE_BADGE[user.role] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {ROLE_LABELS[user.role]}
-                  </span>
-                </td>
-                <td className="px-3.5 py-2.5 text-[13px] border-b border-slate-100">{user.hasVoted ? '✓' : '—'}</td>
-                <td className="px-3.5 py-2.5 border-b border-slate-100">
-                  <button
-                    onClick={() => handleToggle(user)}
-                    className={`border-none rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer ${user.isEnabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
+      {/* Table */}
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr style={{ background: 'var(--surface-2)' }}>
+                {['R.U.', 'Nombre', 'Email', 'Carrera', 'Rol', 'Votó', 'Estado', 'Acciones'].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-5 py-3 text-xs font-semibold border-b whitespace-nowrap"
+                    style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}
                   >
-                    {user.isEnabled ? 'Activo' : 'Inactivo'}
-                  </button>
-                </td>
-                <td className="px-3.5 py-2.5 border-b border-slate-100">
-                  <div className="flex gap-1.5">
-                    <button className="bg-slate-200 text-slate-800 border-none px-2.5 py-0.5 rounded-md cursor-pointer text-xs" onClick={() => openEdit(user)}>Editar</button>
-                    <button className="bg-red-500 text-white border-none px-2.5 py-0.5 rounded-md cursor-pointer text-xs" onClick={() => handleDelete(user)}>Eliminar</button>
-                  </div>
-                </td>
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center px-5 py-10 text-sm" style={{ color: 'var(--text-3)' }}>
+                    Sin resultados
+                  </td>
+                </tr>
+              )}
+              {filtered.map((user, i) => {
+                const rs = ROLE_STYLE[user.role];
+                return (
+                  <tr
+                    key={user.id}
+                    className="transition-colors"
+                    style={{
+                      borderBottom: i < filtered.length - 1 ? `1px solid var(--border)` : 'none',
+                      opacity: user.isEnabled ? 1 : 0.45,
+                    }}
+                  >
+                    <td className="px-5 py-3">
+                      <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-2)', fontFamily: 'monospace' }}>
+                        {user.ru}
+                      </code>
+                    </td>
+                    <td className="px-5 py-3 font-medium" style={{ color: 'var(--text-1)' }}>{user.name}</td>
+                    <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-2)' }}>{user.email}</td>
+                    <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-2)' }}>{CAREER_LABELS[user.career]}</td>
+                    <td className="px-5 py-3">
+                      {rs && (
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold" style={{ color: rs.color, background: rs.bg }}>
+                          {ROLE_LABELS[user.role]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-xs" style={{ color: user.hasVoted ? 'var(--status-active)' : 'var(--text-3)' }}>
+                      {user.hasVoted ? '✓ Sí' : '—'}
+                    </td>
+                    <td className="px-5 py-3">
+                      <button
+                        onClick={() => handleToggle(user)}
+                        className="px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-pointer border-0 transition-opacity hover:opacity-75"
+                        style={
+                          user.isEnabled
+                            ? { background: 'var(--status-active-bg)', color: 'var(--status-active)' }
+                            : { background: 'var(--error-bg)', color: 'var(--error)' }
+                        }
+                      >
+                        {user.isEnabled ? 'Activo' : 'Inactivo'}
+                      </button>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => openEdit(user)}
+                          aria-label="Editar usuario"
+                          className="p-1.5 rounded-lg cursor-pointer border-0 transition-colors"
+                          style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(user)}
+                          aria-label="Eliminar usuario"
+                          className="p-1.5 rounded-lg cursor-pointer border-0 transition-colors hover:opacity-80"
+                          style={{ background: 'var(--error-bg)', color: 'var(--error)' }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
+      {/* Modal */}
       {mode && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={closeForm}>
-          <div className="bg-white rounded-xl px-8 py-7 w-[480px] max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold mb-3">{mode.type === 'create' ? 'Nuevo usuario' : 'Editar usuario'}</h3>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 mt-3">
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                R.U.
-                <input className={`${inputCls} ${mode.type === 'edit' ? 'bg-slate-50 text-slate-400' : ''}`} value={form.ru} onChange={(e) => setForm({ ...form, ru: e.target.value })} required disabled={mode.type === 'edit'} />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                Nombre completo
-                <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                Email
-                <input className={inputCls} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                {mode.type === 'edit' ? 'Nueva contraseña (vacío = no cambiar)' : 'Contraseña'}
-                <input className={inputCls} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required={mode.type === 'create'} minLength={6} />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                Carrera
-                <select className={inputCls} value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value as CareerType })}>
-                  {CAREERS.map((c) => <option key={c} value={c}>{CAREER_LABELS[c]}</option>)}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] font-medium">
-                Rol
-                <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as RoleType })}>
-                  {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                </select>
-              </label>
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
+          style={{ background: 'rgba(0,0,0,.5)' }}
+          onClick={closeForm}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-[480px] max-w-[95vw] max-h-[90vh] overflow-y-auto rounded-2xl p-7 animate-scale-in"
+            style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold mb-6" style={{ color: 'var(--text-1)' }}>
+              {mode.type === 'create' ? 'Nuevo usuario' : 'Editar usuario'}
+            </h3>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {[
+                { id: 'ru',    label: 'R.U.',          type: 'text',     value: form.ru,    disabled: mode.type === 'edit', required: true,                   onChange: (v: string) => setForm({ ...form, ru: v }) },
+                { id: 'name',  label: 'Nombre completo', type: 'text',   value: form.name,  disabled: false,               required: true,                   onChange: (v: string) => setForm({ ...form, name: v }) },
+                { id: 'email', label: 'Email',          type: 'email',   value: form.email, disabled: false,               required: true,                   onChange: (v: string) => setForm({ ...form, email: v }) },
+                { id: 'pwd',   label: mode.type === 'edit' ? 'Nueva contraseña (vacío = no cambiar)' : 'Contraseña', type: 'password', value: form.password, disabled: false, required: mode.type === 'create', onChange: (v: string) => setForm({ ...form, password: v }) },
+              ].map(({ id, label, type, value, disabled, required, onChange }) => (
+                <div key={id} className="flex flex-col gap-1.5">
+                  <label htmlFor={id} className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>{label}</label>
+                  <input
+                    id={id} type={type} value={value} required={required} disabled={disabled}
+                    onChange={(e) => onChange(e.target.value)}
+                    className="w-full rounded-lg px-3.5 py-2.5 text-sm"
+                    style={{ ...inputBase, background: disabled ? 'var(--surface-2)' : 'var(--surface)', opacity: disabled ? 0.6 : 1, minLength: type === 'password' ? 6 : undefined } as React.CSSProperties}
+                  />
+                </div>
+              ))}
 
-              {formError && <p className="text-red-500 text-xs">{formError}</p>}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="career" className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Carrera</label>
+                  <select id="career" className="rounded-lg px-3.5 py-2.5 text-sm cursor-pointer" style={inputBase} value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value as CareerType })}>
+                    {CAREERS.map((c) => <option key={c} value={c}>{CAREER_LABELS[c]}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="role" className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Rol</label>
+                  <select id="role" className="rounded-lg px-3.5 py-2.5 text-sm cursor-pointer" style={inputBase} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as RoleType })}>
+                    {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                  </select>
+                </div>
+              </div>
 
-              <div className="flex justify-end gap-2.5 mt-1">
-                <button type="button" className="bg-slate-200 text-slate-800 border-none px-3.5 py-1.5 rounded-md cursor-pointer text-xs" onClick={closeForm}>Cancelar</button>
-                <button type="submit" disabled={saving} className="bg-indigo-500 text-white border-none px-4 py-2 rounded-md cursor-pointer text-[13px] font-semibold disabled:opacity-60">
+              {formError && (
+                <div className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
+                  <AlertCircle size={13} className="shrink-0" />
+                  {formError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2.5 mt-2">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium cursor-pointer border transition-colors"
+                  style={{ background: 'var(--surface-2)', color: 'var(--text-2)', borderColor: 'var(--border)' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity disabled:opacity-60"
+                  style={{ background: 'var(--brand)' }}
+                >
                   {saving ? 'Guardando…' : mode.type === 'create' ? 'Crear' : 'Guardar'}
                 </button>
               </div>

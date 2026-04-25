@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Plus, ChevronDown, ChevronUp, Trash2, ArrowRight, UserPlus, X, AlertCircle } from 'lucide-react';
 import { useElections } from '../../hooks/useElections';
 import StatusBadge from '../../components/common/StatusBadge';
 import ConfirmModal from '../../components/common/ConfirmModal';
@@ -10,7 +11,18 @@ const NEXT_STATUS: Partial<Record<ElectionStatus, ElectionStatus>> = {
   CERRADA:    'ESCRUTADA',
 };
 
-const inputCls = 'border border-slate-300 rounded-md px-2.5 py-1.5 text-[13px]';
+const NEXT_LABEL: Partial<Record<ElectionStatus, string>> = {
+  PROGRAMADA: 'Activar',
+  ACTIVA:     'Cerrar',
+  CERRADA:    'Escrutar',
+};
+
+const inputBase: React.CSSProperties = {
+  background: 'var(--surface-2)',
+  border: '1px solid var(--border)',
+  color: 'var(--text-1)',
+  outline: 'none',
+};
 
 export default function ElectionManager() {
   const { elections, loading, createElection, updateStatus, deleteElection, addCandidate, removeCandidate } = useElections();
@@ -53,95 +65,154 @@ export default function ElectionManager() {
     setCandidateForm({ frontName: '', candidateName: '', position: '', mission: '', photoUrl: '' });
   }
 
-  if (loading) return <p className="p-6">Cargando…</p>;
+  if (loading) return (
+    <div className="flex items-center justify-center h-48" style={{ color: 'var(--text-3)' }}>
+      <div className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+    </div>
+  );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-xl font-semibold">Gestión de Elecciones</h2>
+    <div className="flex flex-col gap-6 animate-slide-up">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>Gestión de Elecciones</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-2)' }}>{elections.length} elección{elections.length !== 1 ? 'es' : ''} registrada{elections.length !== 1 ? 's' : ''}</p>
+        </div>
         <button
-          className="bg-indigo-500 text-white border-none px-4 py-2 rounded-md cursor-pointer text-[13px] font-semibold"
           onClick={() => setShowForm((v) => !v)}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border-0 cursor-pointer transition-all"
+          style={
+            showForm
+              ? { background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border)' }
+              : { background: 'var(--brand)', color: '#fff' }
+          }
         >
-          {showForm ? 'Cancelar' : '+ Nueva elección'}
+          {showForm ? <X size={14} /> : <Plus size={14} />}
+          {showForm ? 'Cancelar' : 'Nueva elección'}
         </button>
       </div>
 
+      {/* Create form */}
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-xl p-5 mb-4 max-w-lg flex flex-col gap-3">
-          <h3 className="text-sm font-semibold">Nueva elección</h3>
-          <label className="flex flex-col gap-1 text-[13px] font-medium">
-            Título
-            <input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-          </label>
-          <label className="flex flex-col gap-1 text-[13px] font-medium">
-            Descripción
-            <input className={inputCls} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          </label>
-          <label className="flex flex-col gap-1 text-[13px] font-medium">
-            Fecha inicio
-            <input className={inputCls} type="datetime-local" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required />
-          </label>
-          <label className="flex flex-col gap-1 text-[13px] font-medium">
-            Fecha fin
-            <input className={inputCls} type="datetime-local" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
-          </label>
-          {formError && <p className="text-red-500 text-xs">{formError}</p>}
-          <button type="submit" disabled={saving} className="bg-indigo-500 text-white border-none px-4 py-2 rounded-md cursor-pointer text-[13px] font-semibold disabled:opacity-60 self-start">
-            {saving ? 'Guardando…' : 'Crear'}
-          </button>
+        <form
+          onSubmit={handleCreate}
+          className="rounded-2xl p-6 flex flex-col gap-4 animate-slide-up"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+        >
+          <h3 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Nueva elección</h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Título *</label>
+              <input className="rounded-lg px-3.5 py-2.5 text-sm w-full" style={inputBase} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            </div>
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Descripción</label>
+              <input className="rounded-lg px-3.5 py-2.5 text-sm w-full" style={inputBase} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Fecha inicio *</label>
+              <input className="rounded-lg px-3.5 py-2.5 text-sm w-full" style={inputBase} type="datetime-local" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Fecha fin *</label>
+              <input className="rounded-lg px-3.5 py-2.5 text-sm w-full" style={inputBase} type="datetime-local" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
+            </div>
+          </div>
+
+          {formError && (
+            <div className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
+              <AlertCircle size={13} className="shrink-0" />
+              {formError}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="submit" disabled={saving}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity disabled:opacity-60"
+              style={{ background: 'var(--brand)' }}
+            >
+              {saving ? 'Guardando…' : 'Crear elección'}
+            </button>
+          </div>
         </form>
       )}
 
+      {/* Election list */}
       <div className="flex flex-col gap-3">
-        {elections.map((election) => (
-          <div key={election.id} className="bg-white border border-slate-200 rounded-xl p-5">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2.5">
-                <strong className="text-sm">{election.title}</strong>
-                <StatusBadge status={election.status} />
-              </div>
-              <div className="flex gap-2">
-                {NEXT_STATUS[election.status] && (
-                  <button
-                    className="bg-slate-200 text-slate-800 border-none px-3.5 py-1.5 rounded-md cursor-pointer text-xs"
-                    onClick={() => confirmAction(`¿Cambiar estado a ${NEXT_STATUS[election.status]}?`, () => updateStatus(election.id, NEXT_STATUS[election.status]!))}
-                  >
-                    → {NEXT_STATUS[election.status]}
-                  </button>
-                )}
-                {election.status === 'PROGRAMADA' && (
-                  <button
-                    className="bg-red-500 text-white border-none px-3.5 py-1.5 rounded-md cursor-pointer text-xs"
-                    onClick={() => confirmAction('¿Eliminar esta elección?', () => deleteElection(election.id))}
-                  >
-                    Eliminar
-                  </button>
-                )}
-                <button
-                  className="bg-slate-200 text-slate-800 border-none px-3.5 py-1.5 rounded-md cursor-pointer text-xs"
-                  onClick={() => setExpandedId(expandedId === election.id ? null : election.id)}
-                >
-                  {expandedId === election.id ? 'Cerrar' : 'Candidatos'}
-                </button>
-              </div>
-            </div>
-
-            <div className="text-slate-500 text-xs mt-1.5">
-              {new Date(election.startDate).toLocaleString()} — {new Date(election.endDate).toLocaleString()}
-            </div>
-
-            {expandedId === election.id && (
-              <CandidatePanel
-                election={election}
-                candidateForm={candidateForm}
-                setCandidateForm={setCandidateForm}
-                onAdd={() => handleAddCandidate(election.id)}
-                onRemove={(cid) => confirmAction('¿Eliminar este candidato?', () => removeCandidate(election.id, cid))}
-              />
-            )}
+        {elections.length === 0 && !showForm && (
+          <div className="text-center py-16 text-sm rounded-2xl" style={{ color: 'var(--text-3)', background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            No hay elecciones. Crea la primera.
           </div>
-        ))}
+        )}
+        {elections.map((election) => {
+          const isExpanded = expandedId === election.id;
+          return (
+            <div
+              key={election.id}
+              className="rounded-2xl overflow-hidden transition-shadow"
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+            >
+              {/* Card header */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <StatusBadge status={election.status} />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-1)' }}>{election.title}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      {new Date(election.startDate).toLocaleString()} — {new Date(election.endDate).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  {NEXT_STATUS[election.status] && (
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border-0 cursor-pointer transition-opacity hover:opacity-75"
+                      style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+                      onClick={() => confirmAction(`¿Cambiar estado a ${NEXT_STATUS[election.status]}?`, () => updateStatus(election.id, NEXT_STATUS[election.status]!))}
+                    >
+                      <ArrowRight size={11} />
+                      {NEXT_LABEL[election.status]}
+                    </button>
+                  )}
+                  {election.status === 'PROGRAMADA' && (
+                    <button
+                      aria-label="Eliminar elección"
+                      className="p-1.5 rounded-lg border-0 cursor-pointer transition-opacity hover:opacity-75"
+                      style={{ background: 'var(--error-bg)', color: 'var(--error)' }}
+                      onClick={() => confirmAction('¿Eliminar esta elección?', () => deleteElection(election.id))}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                  <button
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border-0 cursor-pointer transition-colors"
+                    style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
+                    onClick={() => setExpandedId(isExpanded ? null : election.id)}
+                    aria-expanded={isExpanded}
+                  >
+                    {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    Candidatos ({(election.candidates ?? []).length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Candidate panel */}
+              {isExpanded && (
+                <CandidatePanel
+                  election={election}
+                  candidateForm={candidateForm}
+                  setCandidateForm={setCandidateForm}
+                  onAdd={() => handleAddCandidate(election.id)}
+                  onRemove={(cid) => confirmAction('¿Eliminar este candidato?', () => removeCandidate(election.id, cid))}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {confirm && (
@@ -163,31 +234,90 @@ function CandidatePanel({ election, candidateForm, setCandidateForm, onAdd, onRe
   onRemove: (id: string) => void;
 }) {
   const candidates = election.candidates ?? [];
-  const inputCls = 'border border-slate-300 rounded-md px-2.5 py-1.5 text-xs';
+
+  const iStyle: React.CSSProperties = {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    color: 'var(--text-1)',
+    outline: 'none',
+  };
 
   return (
-    <div className="mt-4 border-t border-slate-100 pt-3.5">
-      <h4 className="text-[13px] font-semibold mb-2">Candidatos ({candidates.length})</h4>
-      {candidates.length === 0 && <p className="text-[13px] text-slate-400">Sin candidatos aún.</p>}
-      <ul className="list-none flex flex-col gap-1.5 my-2">
-        {candidates.map((c) => (
-          <li key={c.id} className="flex items-center gap-2.5 text-[13px]">
-            <strong>{c.candidateName}</strong> — {c.frontName} — {c.position}
-            {election.status === 'PROGRAMADA' && (
-              <button className="bg-red-500 text-white border-none px-2.5 py-0.5 rounded-md cursor-pointer text-xs" onClick={() => onRemove(c.id)}>✕</button>
-            )}
-          </li>
-        ))}
-      </ul>
+    <div
+      className="border-t px-5 py-4 flex flex-col gap-4 animate-slide-up"
+      style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}
+    >
+      {/* Candidate list */}
+      {candidates.length === 0 ? (
+        <p className="text-xs" style={{ color: 'var(--text-3)' }}>Sin candidatos aún.</p>
+      ) : (
+        <ul className="list-none flex flex-col gap-2">
+          {candidates.map((c) => (
+            <li
+              key={c.id}
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl"
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+            >
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+              >
+                {c.candidateName.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-1)' }}>{c.candidateName}</p>
+                <p className="text-xs truncate" style={{ color: 'var(--text-2)' }}>{c.frontName} · {c.position}</p>
+              </div>
+              {election.status === 'PROGRAMADA' && (
+                <button
+                  aria-label="Eliminar candidato"
+                  className="p-1.5 rounded-lg border-0 cursor-pointer transition-opacity hover:opacity-75 shrink-0"
+                  style={{ background: 'var(--error-bg)', color: 'var(--error)' }}
+                  onClick={() => onRemove(c.id)}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
+      {/* Add candidate form */}
       {election.status === 'PROGRAMADA' && (
-        <div className="flex gap-2 flex-wrap mt-3 items-end">
-          <input className={inputCls} placeholder="Cargo" value={candidateForm.position} onChange={(e) => setCandidateForm((f) => ({ ...f, position: e.target.value }))} />
-          <input className={inputCls} placeholder="Nombre completo" value={candidateForm.candidateName} onChange={(e) => setCandidateForm((f) => ({ ...f, candidateName: e.target.value }))} />
-          <input className={inputCls} placeholder="Nombre del frente" value={candidateForm.frontName} onChange={(e) => setCandidateForm((f) => ({ ...f, frontName: e.target.value }))} />
-          <input className={inputCls} placeholder="Misión (opcional)" value={candidateForm.mission} onChange={(e) => setCandidateForm((f) => ({ ...f, mission: e.target.value }))} />
-          <input className={inputCls} placeholder="URL foto (opcional)" value={candidateForm.photoUrl} onChange={(e) => setCandidateForm((f) => ({ ...f, photoUrl: e.target.value }))} />
-          <button className="bg-indigo-500 text-white border-none px-2.5 py-1.5 rounded-md cursor-pointer text-xs font-semibold" onClick={onAdd}>Agregar</button>
+        <div
+          className="rounded-xl p-4 flex flex-col gap-3"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+        >
+          <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
+            <UserPlus size={12} /> Agregar candidato
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {[
+              { ph: 'Cargo *',             key: 'position' as const },
+              { ph: 'Nombre completo *',   key: 'candidateName' as const },
+              { ph: 'Nombre del frente *', key: 'frontName' as const },
+              { ph: 'Misión (opcional)',   key: 'mission' as const },
+              { ph: 'URL foto (opcional)', key: 'photoUrl' as const },
+            ].map(({ ph, key }) => (
+              <input
+                key={key}
+                className="rounded-lg px-3 py-2 text-xs"
+                style={iStyle}
+                placeholder={ph}
+                value={candidateForm[key]}
+                onChange={(e) => setCandidateForm((f) => ({ ...f, [key]: e.target.value }))}
+              />
+            ))}
+            <button
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90"
+              style={{ background: 'var(--brand)' }}
+              onClick={onAdd}
+            >
+              <Plus size={12} />
+              Agregar
+            </button>
+          </div>
         </div>
       )}
     </div>

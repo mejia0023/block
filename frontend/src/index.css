@@ -1,6 +1,146 @@
 @import "tailwindcss";
 
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --brand:        #4f46e5; /* indigo-600 */
+  --brand-light:  #eef2ff; /* indigo-50  */
+  --brand-dark:   #4338ca; /* indigo-700 */
+
+  /* Surfaces */
+  --bg:           #f4f6f9;
+  --surface:      #ffffff;
+  --surface-2:    #f8fafc;
+  --border:       #e2e8f0;
+  --border-2:     #cbd5e1;
+
+  /* Text */
+  --text-1:       #0f172a;
+  --text-2:       #475569;
+  --text-3:       #94a3b8;
+
+  /* Status */
+  --status-draft:       #64748b;
+  --status-draft-bg:    #f1f5f9;
+  --status-sched:       #2563eb;
+  --status-sched-bg:    #eff6ff;
+  --status-active:      #059669;
+  --status-active-bg:   #ecfdf5;
+  --status-closed:      #d97706;
+  --status-closed-bg:   #fffbeb;
+  --status-counted:     #7c3aed;
+  --status-counted-bg:  #f5f3ff;
+
+  /* Feedback */
+  --success:      #059669;
+  --success-bg:   #ecfdf5;
+  --error:        #dc2626;
+  --error-bg:     #fef2f2;
+  --warning:      #d97706;
+  --warning-bg:   #fffbeb;
+  --info:         #2563eb;
+  --info-bg:      #eff6ff;
+
+  /* Geometry */
+  --radius-sm:    6px;
+  --radius:       10px;
+  --radius-lg:    14px;
+  --radius-xl:    20px;
+
+  /* Shadows */
+  --shadow-sm:    0 1px 3px 0 rgb(0 0 0 / .07), 0 1px 2px -1px rgb(0 0 0 / .07);
+  --shadow:       0 4px 6px -1px rgb(0 0 0 / .07), 0 2px 4px -2px rgb(0 0 0 / .07);
+  --shadow-lg:    0 10px 15px -3px rgb(0 0 0 / .07), 0 4px 6px -4px rgb(0 0 0 / .07);
+  --shadow-xl:    0 20px 25px -5px rgb(0 0 0 / .08), 0 8px 10px -6px rgb(0 0 0 / .08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand:        #818cf8; /* indigo-400 */
+    --brand-light:  #1e1b4b;
+    --brand-dark:   #6366f1;
+
+    --bg:           #0f172a;
+    --surface:      #1e293b;
+    --surface-2:    #273344;
+    --border:       #334155;
+    --border-2:     #475569;
+
+    --text-1:       #f1f5f9;
+    --text-2:       #94a3b8;
+    --text-3:       #475569;
+
+    --status-draft:       #94a3b8;
+    --status-draft-bg:    #1e293b;
+    --status-sched:       #60a5fa;
+    --status-sched-bg:    #1e3a5f;
+    --status-active:      #34d399;
+    --status-active-bg:   #064e3b;
+    --status-closed:      #fbbf24;
+    --status-closed-bg:   #451a03;
+    --status-counted:     #a78bfa;
+    --status-counted-bg:  #2e1065;
+
+    --success-bg:   #064e3b;
+    --error-bg:     #450a0a;
+    --warning-bg:   #451a03;
+    --info-bg:      #1e3a5f;
+
+    --shadow-sm:    0 1px 3px 0 rgb(0 0 0 / .3);
+    --shadow:       0 4px 6px -1px rgb(0 0 0 / .3);
+    --shadow-lg:    0 10px 15px -3px rgb(0 0 0 / .3);
+    --shadow-xl:    0 20px 25px -5px rgb(0 0 0 / .35);
+  }
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; font-size: 14px; }
+
+  html { font-size: 14px; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--bg);
+    color: var(--text-1);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  input, select, textarea, button { font-family: inherit; }
+
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
 }
+
+/* ── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in  { animation: fade-in  .2s ease both; }
+.animate-slide-up { animation: slide-up .25s ease both; }
+.animate-scale-in { animation: scale-in .2s ease both; }
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
