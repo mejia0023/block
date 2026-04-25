@@ -12,6 +12,9 @@ import * as crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { DatabaseService } from '../database/database.service';
+
+export type SyncStatus = 'PENDIENTE' | 'CONFIRMADO' | 'FALLIDO';
 
 export interface VoteAsset {
   assetType: 'vote';
@@ -44,11 +47,19 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   private grpcClient: grpc.Client | null = null;
   private contract: Contract | null = null;
 
+  constructor(private readonly db: DatabaseService) {}
+
   async onModuleInit(): Promise<void> {
-    await this.connectToFabric();
-    this.logger.log(
-      `Fabric connected — channel: ${CHANNEL_NAME}, chaincode: ${CHAINCODE_NAME}`,
-    );
+    try {
+      await this.connectToFabric();
+      this.logger.log(
+        `Fabric connected — channel: ${CHANNEL_NAME}, chaincode: ${CHAINCODE_NAME}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Fabric no disponible al arrancar (modo offline): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   onModuleDestroy(): void {
@@ -106,7 +117,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     _userId: string,
     electionId: string,
     candidateId: string,
-  ): Promise<string> {
+  ): Promise<{ txId: string; voteId: string }> {
     const voteId = randomUUID();
     const contract = this.getContract();
 
@@ -115,10 +126,11 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     });
     const transaction = await proposal.endorse();
     const txId        = transaction.getTransactionId();
+
     await transaction.submit();
 
     this.logger.log(`Vote committed — txId: ${txId}`);
-    return txId;
+    return { txId, voteId };
   }
 
   async getResultados(electionId: string): Promise<TallyAsset> {
@@ -133,5 +145,39 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     } catch {
       throw new NotFoundException(`Transacción ${txId} no encontrada en el ledger`);
     }
+  }
+
+  async cerrarEleccion(electionId: string): Promise<void> {
+    await this.getContract().submitTransaction('cerrarEleccion', electionId);
+    this.logger.log(`Election closed on ledger — electionId: ${electionId}`);
+  }
+
+  async saveSyncLog(data: {
+    userId: string;
+    electionId: string;
+    voteId: string | null;
+    txId: string | null;
+    status: SyncStatus;
+    errorMessage: string | null;
+  }): Promise<void> {
+    await this.db.query(
+      `INSERT INTO recibos_voto
+         (id_usuario, id_eleccion, id_voto, id_transaccion, estado, mensaje_error)
+       VALUES ($1, $2, $3::uuid, $4, $5::estado_sincronizacion, $6)
+       ON CONFLICT (id_eleccion, id_usuario)
+       DO UPDATE SET
+         id_transaccion = EXCLUDED.id_transaccion,
+         estado         = EXCLUDED.estado,
+         mensaje_error  = EXCLUDED.mensaje_error,
+         confirmado_en  = CASE WHEN EXCLUDED.estado = 'CONFIRMADO' THEN NOW() ELSE NULL END`,
+      [
+        data.userId,
+        data.electionId,
+        data.voteId ?? randomUUID(),
+        data.txId,
+        data.status,
+        data.errorMessage,
+      ],
+    );
   }
 }

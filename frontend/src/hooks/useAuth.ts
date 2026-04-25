@@ -5,8 +5,8 @@ import type { AuthResponse } from '../types';
 export function useAuth() {
   const { user, token, setAuth, logout, isAdmin } = useAuthStore();
 
-  async function login(ru: string, password: string): Promise<void> {
-    const { data } = await api.post<AuthResponse>('/auth/login', { ru, password });
+  async function login(identificador: string, password: string): Promise<void> {
+    const { data } = await api.post<AuthResponse>('/auth/login', { identificador, password });
     setAuth(data);
   }
 

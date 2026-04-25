@@ -1,17 +1,41 @@
+// ── Roles (alineados con official_db.sql) ────────────────────────────────────
+// Nuevos valores canónicos
+export type RolUsuario = 'VOTANTE' | 'ADMINISTRADOR' | 'AUDITOR';
+// Valores anteriores del backend (compatibilidad hacia atrás)
+type RolLegado = 'ESTUDIANTE' | 'DOCENTE' | 'ADMIN';
+export type CualquierRol = RolUsuario | RolLegado;
+
+// ── Estado de elección ────────────────────────────────────────────────────────
+export type EstadoEleccion =
+  | 'BORRADOR'
+  | 'PROGRAMADA'
+  | 'ACTIVA'
+  | 'CERRADA'
+  | 'ESCRUTADA';
+export type ElectionStatus = EstadoEleccion;
+
+// ── Tipos heredados ───────────────────────────────────────────────────────────
 export type CareerType = 'SISTEMAS' | 'INFORMATICA' | 'REDES';
-export type RoleType = 'ESTUDIANTE' | 'DOCENTE' | 'ADMIN';
-export type PositionType = 'DECANO' | 'DIRECTOR_SISTEMAS' | 'DIRECTOR_INFORMATICA' | 'DIRECTOR_REDES';
-export type ElectionStatus = 'PROGRAMADA' | 'ACTIVA' | 'CERRADA' | 'ESCRUTADA';
+export type RoleType = CualquierRol;
+export type PositionType =
+  | 'DECANO'
+  | 'DIRECTOR_SISTEMAS'
+  | 'DIRECTOR_INFORMATICA'
+  | 'DIRECTOR_REDES'
+  | string;
+
+// ── Entidades ─────────────────────────────────────────────────────────────────
 
 export interface User {
   id: string;
   ru: string;
-  firstName: string;
-  lastName: string;
+  name: string;
+  email: string;
   career: CareerType;
-  role: RoleType;
+  role: CualquierRol;
   hasVoted: boolean;
   isEnabled: boolean;
+  createdAt: string;
 }
 
 export interface Candidate {
@@ -27,7 +51,7 @@ export interface Election {
   id: string;
   title: string;
   description?: string;
-  status: ElectionStatus;
+  status: EstadoEleccion;
   startDate: string;
   endDate: string;
   candidates: Candidate[];

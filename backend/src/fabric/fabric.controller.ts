@@ -25,11 +25,12 @@ export class FabricController {
   ) {}
 
   /**
-   * POST /fabric/vote
-   * Full voting flow per CLAUDE.md:
-   * 1. Check has_voted via SELECT FOR UPDATE
-   * 2. Call emitirVoto() — gets txId
-   * 3. Only then mark has_voted = true + save txId
+   * POST /fabric/vote — flujo anti-doble-voto:
+   * 1. assertCanVote: verificación rápida sin lock
+   * 2. emitirVoto en Fabric → obtiene txId + voteId
+   * 3. markAsVoted: SELECT FOR UPDATE atómico (race condition safe)
+   * 4. saveSyncLog: guarda recibo con CONFIRMADO
+   * Si Fabric falla: guarda FALLIDO, no marca votado
    */
   @Post('vote')
   @HttpCode(HttpStatus.CREATED)
@@ -39,15 +40,34 @@ export class FabricController {
   ) {
     const { userId } = req.user;
 
-    // Step 1 + 3: atomic lock-check + mark (delegates SELECT FOR UPDATE to UsersService)
-    // We call Fabric first so markAsVoted only fires on confirmed txId
-    const txId = await this.fabricService.emitirVoto(
-      userId,
-      dto.electionId,
-      dto.candidateId,
-    );
+    await this.usersService.assertCanVote(userId, dto.electionId);
 
-    await this.usersService.markAsVoted(userId);
+    let txId: string;
+    let voteId: string;
+    try {
+      ({ txId, voteId } = await this.fabricService.emitirVoto(userId, dto.electionId, dto.candidateId));
+    } catch (err) {
+      await this.fabricService.saveSyncLog({
+        userId,
+        electionId: dto.electionId,
+        voteId: null,
+        txId: null,
+        status: 'FALLIDO',
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    await this.usersService.markAsVoted(userId, dto.electionId);
+
+    await this.fabricService.saveSyncLog({
+      userId,
+      electionId: dto.electionId,
+      voteId,
+      txId,
+      status: 'CONFIRMADO',
+      errorMessage: null,
+    });
 
     return { txId };
   }

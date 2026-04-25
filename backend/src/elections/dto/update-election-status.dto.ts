@@ -1,9 +1,9 @@
 import { IsEnum } from 'class-validator';
-import type { ElectionStatus } from '../election.entity';
+import type { ElectionStatus } from '../elections.service';
 
 export class UpdateElectionStatusDto {
-  @IsEnum(['PROGRAMADA', 'ACTIVA', 'CERRADA', 'ESCRUTADA'], {
-    message: 'status must be one of: PROGRAMADA, ACTIVA, CERRADA, ESCRUTADA',
+  @IsEnum(['BORRADOR', 'PROGRAMADA', 'ACTIVA', 'CERRADA', 'ESCRUTADA'], {
+    message: 'status must be one of: BORRADOR, PROGRAMADA, ACTIVA, CERRADA, ESCRUTADA',
   })
   status: ElectionStatus;
 }

@@ -16,8 +16,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async validateUser(ru: string, password: string) {
-    const user = await this.usersService.findByRu(ru);
+  async validateUser(identificador: string, password: string) {
+    const user = await this.usersService.findByIdentificador(identificador);
 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
@@ -36,11 +36,11 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.validateUser(dto.ru, dto.password);
+    const user = await this.validateUser(dto.identificador, dto.password);
 
     const payload: JwtPayload = {
       sub: user.id,
-      ru: user.ru,
+      identificador: user.identificador,
       role: user.role,
     };
 

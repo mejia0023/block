@@ -12,6 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { CreateCandidateDto } from './dto/create-candidate.dto';
 import { CreateElectionDto } from './dto/create-election.dto';
 import { UpdateElectionStatusDto } from './dto/update-election-status.dto';
@@ -25,6 +27,8 @@ export class ElectionsController {
   // ── Elections ────────────────────────────────────────────────────────────
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRADOR')
   createElection(@Body() dto: CreateElectionDto) {
     return this.electionsService.createElection(dto);
   }
@@ -40,6 +44,8 @@ export class ElectionsController {
   }
 
   @Patch(':id/status')
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRADOR')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateElectionStatusDto,
@@ -49,6 +55,8 @@ export class ElectionsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRADOR')
   deleteElection(@Param('id', ParseUUIDPipe) id: string) {
     return this.electionsService.deleteElection(id);
   }
@@ -56,6 +64,8 @@ export class ElectionsController {
   // ── Candidates ───────────────────────────────────────────────────────────
 
   @Post(':electionId/candidates')
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRADOR')
   createCandidate(
     @Param('electionId', ParseUUIDPipe) electionId: string,
     @Body() dto: CreateCandidateDto,
@@ -70,6 +80,8 @@ export class ElectionsController {
 
   @Delete(':electionId/candidates/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(RolesGuard)
+  @Roles('ADMINISTRADOR')
   deleteCandidate(@Param('id', ParseUUIDPipe) id: string) {
     return this.electionsService.deleteCandidate(id);
   }

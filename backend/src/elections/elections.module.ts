@@ -1,14 +1,13 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Candidate } from './candidate.entity';
-import { Election } from './election.entity';
+import { RolesGuard } from '../auth/roles.guard';
+import { FabricModule } from '../fabric/fabric.module';
 import { ElectionsController } from './elections.controller';
 import { ElectionsService } from './elections.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Election, Candidate])],
+  imports: [FabricModule],
   controllers: [ElectionsController],
-  providers: [ElectionsService],
+  providers: [ElectionsService, RolesGuard],
   exports: [ElectionsService],
 })
 export class ElectionsModule {}

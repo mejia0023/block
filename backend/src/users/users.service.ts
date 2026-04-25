@@ -4,60 +4,211 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { User } from './user.entity';
+import * as bcrypt from 'bcrypt';
+import { DatabaseService } from '../database/database.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+
+export type RoleType = 'VOTANTE' | 'ADMINISTRADOR' | 'AUDITOR';
+
+export interface User {
+  id: string;
+  identificador: string;
+  ru: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: RoleType;
+  career: string;
+  isEnabled: boolean;
+  hasVoted: boolean;
+  createdAt: Date;
+}
+
+// Default org from seed data
+const ORG_ID = '11111111-1111-1111-1111-111111111111';
+
+function mapUser(row: Record<string, unknown>, hasVoted = false): User {
+  const meta = (row.metadatos as Record<string, string>) ?? {};
+  return {
+    id: row.id as string,
+    identificador: row.identificador as string,
+    ru: row.identificador as string,
+    name: row.nombre as string,
+    email: row.email as string,
+    passwordHash: row.hash_contrasena as string,
+    role: row.rol as RoleType,
+    career: meta.carrera ?? '',
+    isEnabled: row.habilitado as boolean,
+    hasVoted,
+    createdAt: row.creado_en as Date,
+  };
+}
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectRepository(User)
-    private readonly usersRepository: Repository<User>,
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly db: DatabaseService) {}
 
-  findByRu(ru: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { ru } });
+  async findByIdentificador(identificador: string): Promise<User | null> {
+    const res = await this.db.query<Record<string, unknown>>(
+      `SELECT u.*,
+        EXISTS(
+          SELECT 1 FROM recibos_voto rv
+          WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
+        ) AS ha_votado
+       FROM usuarios u
+       WHERE u.identificador = $1
+       LIMIT 1`,
+      [identificador],
+    );
+    if (!res.rows[0]) return null;
+    const row = res.rows[0];
+    return mapUser(row, row.ha_votado as boolean);
   }
 
-  findById(id: string): Promise<User | null> {
-    return this.usersRepository.findOne({ where: { id } });
+  async findById(id: string): Promise<User | null> {
+    const res = await this.db.query<Record<string, unknown>>(
+      `SELECT u.*,
+        EXISTS(
+          SELECT 1 FROM recibos_voto rv
+          WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
+        ) AS ha_votado
+       FROM usuarios u
+       WHERE u.id = $1
+       LIMIT 1`,
+      [id],
+    );
+    if (!res.rows[0]) return null;
+    const row = res.rows[0];
+    return mapUser(row, row.ha_votado as boolean);
   }
 
-  /**
-   * Atomically checks eligibility and marks the user as voted.
-   * Uses SELECT FOR UPDATE to prevent double-voting under concurrent requests.
-   * Must be called ONLY after Fabric confirms the transaction.
-   */
-  async markAsVoted(userId: string): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+  async findAll(): Promise<User[]> {
+    const res = await this.db.query<Record<string, unknown>>(
+      `SELECT u.*,
+        EXISTS(
+          SELECT 1 FROM recibos_voto rv
+          WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
+        ) AS ha_votado
+       FROM usuarios u
+       WHERE u.id_organizacion = $1
+       ORDER BY u.creado_en DESC`,
+      [ORG_ID],
+    );
+    return res.rows.map((row) => mapUser(row, row.ha_votado as boolean));
+  }
 
-    try {
-      const user = await queryRunner.manager
-        .createQueryBuilder(User, 'user')
-        .setLock('pessimistic_write')
-        .where('user.id = :id', { id: userId })
-        .getOne();
-
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-      if (!user.isEnabled) {
-        throw new UnauthorizedException('Cuenta deshabilitada');
-      }
-      if (user.hasVoted) {
-        throw new ConflictException('El usuario ya emitió su voto');
-      }
-
-      await queryRunner.manager.update(User, { id: userId }, { hasVoted: true });
-      await queryRunner.commitTransaction();
-    } catch (err) {
-      await queryRunner.rollbackTransaction();
-      throw err;
-    } finally {
-      await queryRunner.release();
+  async create(dto: CreateUserDto): Promise<User> {
+    const exists = await this.db.query(
+      `SELECT id FROM usuarios
+       WHERE id_organizacion = $1 AND (identificador = $2 OR email = $3)
+       LIMIT 1`,
+      [ORG_ID, dto.identificador, dto.email],
+    );
+    if (exists.rows.length > 0) {
+      throw new ConflictException('El identificador o email ya está registrado');
     }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const meta = dto.career ? JSON.stringify({ carrera: dto.career }) : '{}';
+
+    const res = await this.db.query<Record<string, unknown>>(
+      `INSERT INTO usuarios
+         (id_organizacion, identificador, nombre, email, hash_contrasena, rol, metadatos)
+       VALUES ($1, $2, $3, $4, $5, $6::rol_usuario, $7::jsonb)
+       RETURNING *`,
+      [ORG_ID, dto.identificador, dto.name, dto.email, passwordHash, dto.role, meta],
+    );
+    return mapUser(res.rows[0]);
+  }
+
+  async update(id: string, dto: UpdateUserDto): Promise<User> {
+    const current = await this.findById(id);
+    if (!current) throw new NotFoundException('Usuario no encontrado');
+
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (dto.name !== undefined) {
+      setClauses.push(`nombre = $${idx++}`);
+      params.push(dto.name);
+    }
+    if (dto.email !== undefined) {
+      setClauses.push(`email = $${idx++}`);
+      params.push(dto.email);
+    }
+    if (dto.role !== undefined) {
+      setClauses.push(`rol = $${idx++}::rol_usuario`);
+      params.push(dto.role);
+    }
+    if (dto.isEnabled !== undefined) {
+      setClauses.push(`habilitado = $${idx++}`);
+      params.push(dto.isEnabled);
+    }
+    if (dto.career !== undefined) {
+      setClauses.push(`metadatos = metadatos || $${idx++}::jsonb`);
+      params.push(JSON.stringify({ carrera: dto.career }));
+    }
+    if (dto.password) {
+      setClauses.push(`hash_contrasena = $${idx++}`);
+      params.push(await bcrypt.hash(dto.password, 10));
+    }
+
+    if (setClauses.length === 0) return current;
+
+    params.push(id);
+    const res = await this.db.query<Record<string, unknown>>(
+      `UPDATE usuarios SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params,
+    );
+    return mapUser(res.rows[0], current.hasVoted);
+  }
+
+  async remove(id: string): Promise<void> {
+    const res = await this.db.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    if (res.rowCount === 0) throw new NotFoundException('Usuario no encontrado');
+  }
+
+  async assertCanVote(userId: string, electionId: string): Promise<void> {
+    const userRes = await this.db.query<{ habilitado: boolean }>(
+      'SELECT habilitado FROM usuarios WHERE id = $1',
+      [userId],
+    );
+    if (!userRes.rows[0]) throw new NotFoundException('Usuario no encontrado');
+    if (!userRes.rows[0].habilitado) throw new UnauthorizedException('Cuenta deshabilitada');
+
+    const votoRes = await this.db.query(
+      `SELECT id FROM recibos_voto
+       WHERE id_usuario = $1 AND id_eleccion = $2 AND estado = 'CONFIRMADO'`,
+      [userId, electionId],
+    );
+    if (votoRes.rows.length > 0) throw new ConflictException('El usuario ya emitió su voto');
+  }
+
+  async markAsVoted(userId: string, electionId: string): Promise<void> {
+    await this.db.transaction(async (client) => {
+      const userRes = await client.query<{ habilitado: boolean }>(
+        'SELECT habilitado FROM usuarios WHERE id = $1 FOR UPDATE',
+        [userId],
+      );
+      if (!userRes.rows[0]) throw new NotFoundException('Usuario no encontrado');
+      if (!userRes.rows[0].habilitado) throw new UnauthorizedException('Cuenta deshabilitada');
+
+      const votoRes = await client.query(
+        `SELECT id FROM recibos_voto
+         WHERE id_usuario = $1 AND id_eleccion = $2 AND estado = 'CONFIRMADO'`,
+        [userId, electionId],
+      );
+      if (votoRes.rows.length > 0) throw new ConflictException('El usuario ya emitió su voto');
+
+      await client.query(
+        `INSERT INTO padron_electoral (id_eleccion, id_usuario, voto_emitido, votado_en)
+         VALUES ($1, $2, true, NOW())
+         ON CONFLICT (id_eleccion, id_usuario)
+         DO UPDATE SET voto_emitido = true, votado_en = NOW()`,
+        [electionId, userId],
+      );
+    });
   }
 }

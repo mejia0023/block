@@ -1,0 +1,73 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Server",
+            "type": "shell",
+            // Ejecuta el servidor Spring Boot
+            "command": "pwsh -NoExit -Command \"npm run start:dev\"",
+            "options": {
+                "cwd": "${workspaceFolder}/backend/"
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "group": "backend-group",
+                "panel": "new", // Crea una pestaña nueva, no divide la actual
+                "focus": true,
+                "clear": true
+            }
+        },
+        {
+            "label": "Terminal Frontend",
+            "type": "shell",
+            // Solo entra a la carpeta sin ejecutar comandos pesados
+            "command": "pwsh -NoExit -Command \"npm run dev\"",
+            "options": {
+                "cwd": "${workspaceFolder}/frontend"
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "group": "frontend-group",
+                "panel": "new", // Otra pestaña independiente
+                "focus": false,
+                "clear": true
+            }
+        },
+          
+        {
+            "label": "claude code",
+            "type": "shell",
+            "command": "pwsh -NoExit -Command \"claude --resume 67d09892-0566-4774-ad4a-1b39d07e3477 \"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "group": "empty-group",
+                "panel": "new",
+                "focus": false,
+                "clear": true
+            }
+        },
+         {
+            "label": "enmpy",
+            "type": "shell",
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "group": "empty-group",
+                "panel": "new",
+                "focus": true,
+                "clear": true
+            }
+        }
+
+    ]
+}

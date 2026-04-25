@@ -4,11 +4,11 @@ import Sidebar from './Sidebar';
 
 export default function AdminLayout() {
   return (
-    <div className="admin-layout">
+    <div className="flex flex-col min-h-screen bg-slate-100">
       <Navbar />
-      <div className="admin-body">
+      <div className="flex flex-1">
         <Sidebar />
-        <main className="admin-content">
+        <main className="flex-1 p-6">
           <Outlet />
         </main>
       </div>

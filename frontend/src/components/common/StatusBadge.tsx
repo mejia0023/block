@@ -1,24 +1,16 @@
 import type { ElectionStatus } from '../../types';
 
-const colorMap: Record<ElectionStatus, string> = {
-  PROGRAMADA: '#6366f1',
-  ACTIVA: '#22c55e',
-  CERRADA: '#f59e0b',
-  ESCRUTADA: '#64748b',
+const classMap: Record<ElectionStatus, string> = {
+  BORRADOR:   'bg-slate-400',
+  PROGRAMADA: 'bg-indigo-500',
+  ACTIVA:     'bg-green-500',
+  CERRADA:    'bg-amber-500',
+  ESCRUTADA:  'bg-slate-500',
 };
 
 export default function StatusBadge({ status }: { status: ElectionStatus }) {
   return (
-    <span
-      style={{
-        backgroundColor: colorMap[status],
-        color: '#fff',
-        padding: '2px 10px',
-        borderRadius: 12,
-        fontSize: 12,
-        fontWeight: 600,
-      }}
-    >
+    <span className={`${classMap[status]} text-white px-2.5 py-0.5 rounded-full text-xs font-semibold`}>
       {status}
     </span>
   );

@@ -3,8 +3,8 @@ import { IsNotEmpty, IsString, Length } from 'class-validator';
 export class LoginDto {
   @IsString()
   @IsNotEmpty()
-  @Length(1, 50)
-  ru: string;
+  @Length(1, 100)
+  identificador: string;
 
   @IsString()
   @IsNotEmpty()
