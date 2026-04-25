@@ -10,13 +10,6 @@ const NEXT_STATUS: Partial<Record<ElectionStatus, ElectionStatus>> = {
   CERRADA:    'ESCRUTADA',
 };
 
-const POSITION_OPTIONS = [
-  'DECANO',
-  'DIRECTOR_SISTEMAS',
-  'DIRECTOR_INFORMATICA',
-  'DIRECTOR_REDES',
-] as const;
-
 const inputCls = 'border border-slate-300 rounded-md px-2.5 py-1.5 text-[13px]';
 
 export default function ElectionManager() {
@@ -28,7 +21,7 @@ export default function ElectionManager() {
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [candidateForm, setCandidateForm] = useState({
-    frontName: '', candidateName: '', position: 'DECANO' as Candidate['position'], mission: '', photoUrl: '',
+    frontName: '', candidateName: '', position: '' as Candidate['position'], mission: '', photoUrl: '',
   });
   const [confirm, setConfirm] = useState<{ message: string; action: () => void } | null>(null);
 
@@ -57,7 +50,7 @@ export default function ElectionManager() {
       frontName: candidateForm.frontName, candidateName: candidateForm.candidateName,
       position: candidateForm.position, mission: candidateForm.mission || undefined, photoUrl: candidateForm.photoUrl || undefined,
     });
-    setCandidateForm({ frontName: '', candidateName: '', position: 'DECANO', mission: '', photoUrl: '' });
+    setCandidateForm({ frontName: '', candidateName: '', position: '', mission: '', photoUrl: '' });
   }
 
   if (loading) return <p className="p-6">Cargando…</p>;
@@ -189,12 +182,7 @@ function CandidatePanel({ election, candidateForm, setCandidateForm, onAdd, onRe
 
       {election.status === 'PROGRAMADA' && (
         <div className="flex gap-2 flex-wrap mt-3 items-end">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-slate-500">Cargo</span>
-            <select className={inputCls} value={candidateForm.position} onChange={(e) => setCandidateForm((f) => ({ ...f, position: e.target.value as Candidate['position'] }))}>
-              {POSITION_OPTIONS.map((p) => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
-            </select>
-          </div>
+          <input className={inputCls} placeholder="Cargo" value={candidateForm.position} onChange={(e) => setCandidateForm((f) => ({ ...f, position: e.target.value }))} />
           <input className={inputCls} placeholder="Nombre completo" value={candidateForm.candidateName} onChange={(e) => setCandidateForm((f) => ({ ...f, candidateName: e.target.value }))} />
           <input className={inputCls} placeholder="Nombre del frente" value={candidateForm.frontName} onChange={(e) => setCandidateForm((f) => ({ ...f, frontName: e.target.value }))} />
           <input className={inputCls} placeholder="Misión (opcional)" value={candidateForm.mission} onChange={(e) => setCandidateForm((f) => ({ ...f, mission: e.target.value }))} />
