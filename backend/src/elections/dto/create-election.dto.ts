@@ -31,4 +31,8 @@ export class CreateElectionDto {
   @IsDate()
   @Validate(EndAfterStart)
   endDate: Date;
+
+  @IsOptional()
+  @IsString()
+  channelName?: string;
 }

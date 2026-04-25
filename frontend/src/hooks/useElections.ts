@@ -27,6 +27,7 @@ export function useElections() {
     description?: string;
     startDate: string;
     endDate: string;
+    channelName?: string;
   }): Promise<Election> {
     const { data } = await api.post<Election>('/elections', payload);
     setElections((prev) => [...prev, data]);

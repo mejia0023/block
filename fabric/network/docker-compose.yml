@@ -8,6 +8,8 @@ volumes:
   orderer.ficct.edu.bo:
   peer0.ficct.edu.bo:
   couchdb0:
+  peer1.ficct.edu.bo:
+  couchdb1:
 
 services:
   # ── Fabric CA ──────────────────────────────────────────────────────────────
@@ -118,6 +120,64 @@ services:
       evoting:
         aliases:
           - peer0.ficct.edu.bo
+
+  # ── CouchDB 1 ─────────────────────────────────────────────────────────────
+  couchdb1:
+    image: couchdb:3.3.3
+    container_name: couchdb1
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    volumes:
+      - couchdb1:/opt/couchdb/data
+    ports:
+      - "6984:5984"
+    networks:
+      - evoting
+
+  # ── Peer 1 ─────────────────────────────────────────────────────────────────
+  peer1.ficct.edu.bo:
+    image: hyperledger/fabric-peer:2.5
+    container_name: peer1.ficct.edu.bo
+    hostname: peer1.ficct.edu.bo
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=evoting_network
+      - FABRIC_CFG_PATH=/etc/hyperledger/fabric
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_TLS_ENABLED=true
+      - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
+      - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
+      - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
+      - CORE_PEER_ID=peer1.ficct.edu.bo
+      - CORE_PEER_ADDRESS=peer1.ficct.edu.bo:8051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
+      - CORE_PEER_CHAINCODEADDRESS=peer1.ficct.edu.bo:8052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:8052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.ficct.edu.bo:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.ficct.edu.bo:8051
+      - CORE_PEER_LOCALMSPID=FICCTOrgMSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/fabric/msp
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb1:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+      - CORE_OPERATIONS_LISTENADDRESS=0.0.0.0:9445
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-material/peerOrganizations/ficct.edu.bo/peers/peer1.ficct.edu.bo/msp:/etc/hyperledger/fabric/msp
+      - ./crypto-material/peerOrganizations/ficct.edu.bo/peers/peer1.ficct.edu.bo/tls:/etc/hyperledger/fabric/tls
+      - peer1.ficct.edu.bo:/var/hyperledger/production
+    ports:
+      - "8051:8051"
+      - "9445:9445"
+    depends_on:
+      - couchdb1
+      - orderer.ficct.edu.bo
+    networks:
+      evoting:
+        aliases:
+          - peer1.ficct.edu.bo
 
   # ── CLI (admin operations) ─────────────────────────────────────────────────
   cli:

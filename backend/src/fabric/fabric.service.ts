@@ -45,16 +45,13 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FabricService.name);
   private gateway: Gateway | null = null;
   private grpcClient: grpc.Client | null = null;
-  private contract: Contract | null = null;
+  private contracts = new Map<string, Contract>();
 
   constructor(private readonly db: DatabaseService) {}
 
   async onModuleInit(): Promise<void> {
     try {
-      await this.connectToFabric();
-      this.logger.log(
-        `Fabric connected — channel: ${CHANNEL_NAME}, chaincode: ${CHAINCODE_NAME}`,
-      );
+      await this.reconnect();
     } catch (err) {
       this.logger.warn(
         `Fabric no disponible al arrancar (modo offline): ${err instanceof Error ? err.message : String(err)}`,
@@ -67,7 +64,37 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     this.grpcClient?.close();
   }
 
-  private async connectToFabric(): Promise<void> {
+  async reconnect(): Promise<void> {
+    this.gateway?.close();
+    this.grpcClient?.close();
+    this.gateway = null;
+    this.grpcClient = null;
+    this.contracts.clear();
+
+    // Intenta el primer peer activo de la DB; si no hay, usa las env vars
+    let endpoint = PEER_ENDPOINT;
+    let hostAlias = PEER_HOST_ALIAS;
+    try {
+      const { rows } = await this.db.query<any>(
+        `SELECT endpoint, host_alias FROM nodos_fabric
+         WHERE activo = true ORDER BY prioridad ASC, creado_en ASC LIMIT 1`,
+      );
+      if (rows.length > 0) {
+        endpoint  = rows[0].endpoint;
+        hostAlias = rows[0].host_alias;
+      }
+    } catch {
+      // tabla aún no existe o DB offline → usa env vars
+    }
+
+    await this.connectToFabric(endpoint, hostAlias);
+    this.logger.log(`Fabric conectado → ${endpoint} (${hostAlias})`);
+  }
+
+  private async connectToFabric(
+    peerEndpoint = PEER_ENDPOINT,
+    peerHostAlias = PEER_HOST_ALIAS,
+  ): Promise<void> {
     const peerOrgPath = path.join(CRYPTO_BASE, 'peerOrganizations', 'ficct.edu.bo');
     const tlsCertPath = path.join(
       peerOrgPath, 'peers', 'peer0.ficct.edu.bo', 'tls', 'ca.crt',
@@ -89,9 +116,9 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     const privateKey = crypto.createPrivateKey(adminKey);
 
     this.grpcClient = new grpc.Client(
-      PEER_ENDPOINT,
+      peerEndpoint,
       grpc.credentials.createSsl(tlsCert),
-      { 'grpc.ssl_target_name_override': PEER_HOST_ALIAS },
+      { 'grpc.ssl_target_name_override': peerHostAlias },
     );
 
     this.gateway = connect({
@@ -101,16 +128,37 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
       hash: hash.sha256,
     });
 
-    this.contract = this.gateway.getNetwork(CHANNEL_NAME).getContract(CHAINCODE_NAME);
+    // Prime the default channel eagerly so getContract() keeps working
+    this.contracts.set(
+      CHANNEL_NAME,
+      this.gateway.getNetwork(CHANNEL_NAME).getContract(CHAINCODE_NAME),
+    );
   }
 
-  private getContract(): Contract {
-    if (!this.contract) {
+  private getContractForChannel(channelName: string): Contract {
+    if (!this.gateway) {
       throw new ServiceUnavailableException(
         'Red Fabric no disponible. Ejecuta fabric/network/scripts/setup.sh',
       );
     }
-    return this.contract;
+    if (!this.contracts.has(channelName)) {
+      this.contracts.set(
+        channelName,
+        this.gateway.getNetwork(channelName).getContract(CHAINCODE_NAME),
+      );
+    }
+    return this.contracts.get(channelName)!;
+  }
+
+  private async getElectionChannel(electionId: string): Promise<string> {
+    try {
+      const { rows } = await this.db.query<any>(
+        `SELECT canal_fabric FROM elecciones WHERE id = $1`, [electionId],
+      );
+      return rows[0]?.canal_fabric ?? CHANNEL_NAME;
+    } catch {
+      return CHANNEL_NAME;
+    }
   }
 
   async emitirVoto(
@@ -118,8 +166,9 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     electionId: string,
     candidateId: string,
   ): Promise<{ txId: string; voteId: string }> {
-    const voteId = randomUUID();
-    const contract = this.getContract();
+    const voteId    = randomUUID();
+    const channel   = await this.getElectionChannel(electionId);
+    const contract  = this.getContractForChannel(channel);
 
     const proposal    = contract.newProposal('emitirVoto', {
       arguments: [voteId, electionId, candidateId],
@@ -134,13 +183,14 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getResultados(electionId: string): Promise<TallyAsset> {
-    const result = await this.getContract().evaluateTransaction('getResultados', electionId);
+    const channel = await this.getElectionChannel(electionId);
+    const result  = await this.getContractForChannel(channel).evaluateTransaction('getResultados', electionId);
     return JSON.parse(Buffer.from(result).toString('utf8')) as TallyAsset;
   }
 
   async verificarVoto(txId: string): Promise<VoteAsset> {
     try {
-      const result = await this.getContract().evaluateTransaction('verificarVoto', txId);
+      const result = await this.getContractForChannel(CHANNEL_NAME).evaluateTransaction('verificarVoto', txId);
       return JSON.parse(Buffer.from(result).toString('utf8')) as VoteAsset;
     } catch {
       throw new NotFoundException(`Transacción ${txId} no encontrada en el ledger`);
@@ -148,7 +198,8 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cerrarEleccion(electionId: string): Promise<void> {
-    await this.getContract().submitTransaction('cerrarEleccion', electionId);
+    const channel = await this.getElectionChannel(electionId);
+    await this.getContractForChannel(channel).submitTransaction('cerrarEleccion', electionId);
     this.logger.log(`Election closed on ledger — electionId: ${electionId}`);
   }
 

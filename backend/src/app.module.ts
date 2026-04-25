@@ -4,9 +4,11 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { ChannelsModule } from './channels/channels.module';
 import { DatabaseModule } from './database/database.module';
 import { ElectionsModule } from './elections/elections.module';
 import { FabricModule } from './fabric/fabric.module';
+import { NodesModule } from './nodes/nodes.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -17,6 +19,8 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     ElectionsModule,
     FabricModule,
+    NodesModule,
+    ChannelsModule,
     AuditModule,
   ],
   controllers: [AppController],

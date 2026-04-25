@@ -28,14 +28,16 @@ const inputBase: React.CSSProperties = {
 export default function ElectionManager() {
   const { elections, loading, createElection, updateStatus, deleteElection, addCandidate, removeCandidate } = useElections();
 
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers]       = useState<User[]>([]);
+  const [channels, setChannels] = useState<{ nombre: string }[]>([]);
 
   useEffect(() => {
     api.get<User[]>('/users').then(({ data }) => setUsers(data)).catch(() => {});
+    api.get<{ nombre: string }[]>('/channels').then(({ data }) => setChannels(data)).catch(() => {});
   }, []);
 
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', startDate: '', endDate: '' });
+  const [form, setForm] = useState({ title: '', description: '', startDate: '', endDate: '', channelName: 'evoting' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -49,8 +51,8 @@ export default function ElectionManager() {
     setFormError('');
     setSaving(true);
     try {
-      await createElection({ title: form.title, description: form.description || undefined, startDate: form.startDate, endDate: form.endDate });
-      setForm({ title: '', description: '', startDate: '', endDate: '' });
+      await createElection({ title: form.title, description: form.description || undefined, startDate: form.startDate, endDate: form.endDate, channelName: form.channelName });
+      setForm({ title: '', description: '', startDate: '', endDate: '', channelName: 'evoting' });
       setShowForm(false);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -125,6 +127,22 @@ export default function ElectionManager() {
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Fecha fin *</label>
               <input className="rounded-lg px-3.5 py-2.5 text-sm w-full" style={inputBase} type="datetime-local" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Canal Fabric *</label>
+              <select
+                className="rounded-lg px-3.5 py-2.5 text-sm w-full"
+                style={inputBase}
+                value={form.channelName}
+                onChange={(e) => setForm({ ...form, channelName: e.target.value })}
+              >
+                {channels.length === 0
+                  ? <option value="evoting">evoting (por defecto)</option>
+                  : channels.map((ch) => (
+                      <option key={ch.nombre} value={ch.nombre}>{ch.nombre}</option>
+                    ))
+                }
+              </select>
             </div>
           </div>
 

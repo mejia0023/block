@@ -6,6 +6,8 @@ import Dashboard from '../pages/admin/Dashboard';
 import ElectionManager from '../pages/admin/ElectionManager';
 import AuditLogs from '../pages/admin/AuditLogs';
 import UsersPage from '../pages/admin/UsersPage';
+import ChannelsPage from '../pages/admin/ChannelsPage';
+import NodesPage from '../pages/admin/NodesPage';
 import VotingPage from '../pages/voter/VotingPage';
 import AuditorDashboard from '../pages/auditor/AuditorDashboard';
 import AdminLayout from '../components/layout/AdminLayout';
@@ -53,6 +55,8 @@ export default function AppRouter() {
           <Route path="usuarios"   element={<UsersPage />} />
           <Route path="auditoria"  element={<AuditLogs />} />
           <Route path="resultados" element={<LiveResults />} />
+          <Route path="nodos"    element={<NodesPage />} />
+          <Route path="canales"  element={<ChannelsPage />} />
         </Route>
 
         {/* ── VOTANTE ───────────────────────────────────────────────────── */}

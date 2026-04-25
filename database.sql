@@ -217,3 +217,60 @@ CREATE INDEX idx_auditoria_accion  ON eventos_auditoria(accion);
 CREATE INDEX idx_auditoria_fecha   ON eventos_auditoria(creado_en DESC);
 CREATE INDEX idx_auditoria_seguridad ON eventos_auditoria(id_organizacion, creado_en DESC)
   WHERE accion IN ('INICIO_SESION_FALLIDO', 'INTENTO_VOTO_DOBLE', 'VOTO_FALLIDO');
+
+-- ── TABLA 9: NODOS_FABRIC ─────────────────────────────────────────────────────
+
+DROP TABLE IF EXISTS nodos_fabric CASCADE;
+
+CREATE TABLE nodos_fabric (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre      VARCHAR(100) NOT NULL,
+  endpoint    VARCHAR(255) NOT NULL,
+  host_alias  VARCHAR(255) NOT NULL,
+  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
+  prioridad   SMALLINT     NOT NULL DEFAULT 0,
+  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Peers por defecto de la red FICCT
+INSERT INTO nodos_fabric (nombre, endpoint, host_alias, prioridad) VALUES
+  ('peer0', 'localhost:7051', 'peer0.ficct.edu.bo', 0),
+  ('peer1', 'localhost:8051', 'peer1.ficct.edu.bo', 1);
+
+-- ── TABLA: CANALES_FABRIC ─────────────────────────────────────────────────
+
+DROP TABLE IF EXISTS canales_fabric CASCADE;
+
+CREATE TABLE canales_fabric (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre      VARCHAR(100) UNIQUE NOT NULL,
+  descripcion TEXT,
+  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
+  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO canales_fabric (nombre, descripcion) VALUES
+  ('evoting', 'Canal principal de votación FICCT');
+
+  -- ── TABLA: CONFIGURACION_USUARIO ─────────────────────────────────────────
+
+DROP TABLE IF EXISTS configuracion_usuario CASCADE;
+
+CREATE TABLE configuracion_usuario (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id_usuario  UUID         NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  preferencias JSONB        NOT NULL DEFAULT '{}',
+  notificaciones BOOLEAN   NOT NULL DEFAULT TRUE,
+  ultimo_cambio TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  UNIQUE(id_usuario)
+);
+  DROP TABLE IF EXISTS canales_fabric CASCADE;                                                                                                      CREATE TABLE canales_fabric (
+    id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),                                                                              
+    nombre      VARCHAR(100) UNIQUE NOT NULL,
+    descripcion TEXT,
+    activo      BOOLEAN      NOT NULL DEFAULT TRUE,
+    creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+  );
+  INSERT INTO canales_fabric (nombre, descripcion) VALUES
+    ('evoting', 'Canal principal de votación FICCT');
+  "

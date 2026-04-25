@@ -9,6 +9,6 @@ PeerOrgs:
     Domain: ficct.edu.bo
     EnableNodeOUs: true
     Template:
-      Count: 1
+      Count: 2
     Users:
       Count: 1

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Vote, Users, ShieldCheck, BarChart2,
-  BarChart, Link2,
+  BarChart, Link2, Server, Layers,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 
@@ -11,6 +11,8 @@ const adminLinks = [
   { to: '/admin/usuarios',   label: 'Usuarios',    Icon: Users },
   { to: '/admin/auditoria',  label: 'Auditoría',   Icon: ShieldCheck },
   { to: '/admin/resultados', label: 'Resultados',  Icon: BarChart2 },
+  { to: '/admin/nodos',    label: 'Nodos',    Icon: Server },
+  { to: '/admin/canales',  label: 'Canales',  Icon: Layers },
 ];
 
 const voterLinks = [

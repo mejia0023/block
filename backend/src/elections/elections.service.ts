@@ -41,6 +41,7 @@ export interface Election {
   startDate: Date;
   endDate: Date;
   status: ElectionStatus;
+  channelName: string;
   createdAt: Date;
   candidates: Candidate[];
 }
@@ -66,6 +67,7 @@ function mapElection(row: Record<string, unknown>, candidates: Candidate[] = [])
     startDate: row.fecha_inicio as Date,
     endDate: row.fecha_fin as Date,
     status: row.estado as ElectionStatus,
+    channelName: (row.canal_fabric as string) ?? 'evoting',
     createdAt: row.creado_en as Date,
     candidates,
   };
@@ -83,11 +85,12 @@ export class ElectionsService {
   // ── Elections ────────────────────────────────────────────────────────────
 
   async createElection(dto: CreateElectionDto): Promise<Election> {
+    const channel = dto.channelName ?? 'evoting';
     const res = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO elecciones (id_organizacion, titulo, descripcion, fecha_inicio, fecha_fin, estado)
-       VALUES ($1, $2, $3, $4, $5, 'PROGRAMADA')
+      `INSERT INTO elecciones (id_organizacion, titulo, descripcion, fecha_inicio, fecha_fin, estado, canal_fabric)
+       VALUES ($1, $2, $3, $4, $5, 'PROGRAMADA', $6)
        RETURNING *`,
-      [ORG_ID, dto.title, dto.description ?? null, dto.startDate, dto.endDate],
+      [ORG_ID, dto.title, dto.description ?? null, dto.startDate, dto.endDate, channel],
     );
     return mapElection(res.rows[0]);
   }
