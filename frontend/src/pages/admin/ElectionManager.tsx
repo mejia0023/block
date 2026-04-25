@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Plus, ChevronDown, ChevronUp, Trash2, ArrowRight, UserPlus, X, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, ChevronDown, ChevronUp, Trash2, ArrowRight, UserPlus, X, AlertCircle, Search } from 'lucide-react';
 import { useElections } from '../../hooks/useElections';
 import StatusBadge from '../../components/common/StatusBadge';
 import ConfirmModal from '../../components/common/ConfirmModal';
-import type { Election, ElectionStatus, Candidate } from '../../types';
+import api from '../../api/axios.config';
+import type { Election, ElectionStatus, Candidate, User } from '../../types';
 
 const NEXT_STATUS: Partial<Record<ElectionStatus, ElectionStatus>> = {
   PROGRAMADA: 'ACTIVA',
@@ -26,6 +27,12 @@ const inputBase: React.CSSProperties = {
 
 export default function ElectionManager() {
   const { elections, loading, createElection, updateStatus, deleteElection, addCandidate, removeCandidate } = useElections();
+
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    api.get<User[]>('/users').then(({ data }) => setUsers(data)).catch(() => {});
+  }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', startDate: '', endDate: '' });
@@ -204,6 +211,7 @@ export default function ElectionManager() {
               {isExpanded && (
                 <CandidatePanel
                   election={election}
+                  users={users}
                   candidateForm={candidateForm}
                   setCandidateForm={setCandidateForm}
                   onAdd={() => handleAddCandidate(election.id)}
@@ -226,14 +234,38 @@ export default function ElectionManager() {
   );
 }
 
-function CandidatePanel({ election, candidateForm, setCandidateForm, onAdd, onRemove }: {
+function CandidatePanel({ election, users, candidateForm, setCandidateForm, onAdd, onRemove }: {
   election: Election;
+  users: User[];
   candidateForm: { frontName: string; candidateName: string; position: Candidate['position']; mission: string; photoUrl: string; };
   setCandidateForm: React.Dispatch<React.SetStateAction<typeof candidateForm>>;
   onAdd: () => void;
   onRemove: (id: string) => void;
 }) {
   const candidates = election.candidates ?? [];
+
+  const [userSearch, setUserSearch] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+
+  // Resetear el selector cuando el form se limpia después de agregar
+  useEffect(() => {
+    if (!candidateForm.candidateName) {
+      setSelectedUserId('');
+      setUserSearch('');
+    }
+  }, [candidateForm.candidateName]);
+
+  const filteredUsers = users.filter((u) => {
+    if (!userSearch.trim()) return true;
+    const q = userSearch.toLowerCase();
+    return u.name.toLowerCase().includes(q) || u.ru.toLowerCase().includes(q);
+  });
+
+  function handleUserSelect(userId: string) {
+    const user = users.find((u) => u.id === userId);
+    setSelectedUserId(userId);
+    setCandidateForm((f) => ({ ...f, candidateName: user?.name ?? '' }));
+  }
 
   const iStyle: React.CSSProperties = {
     background: 'var(--surface)',
@@ -292,10 +324,51 @@ function CandidatePanel({ election, candidateForm, setCandidateForm, onAdd, onRe
           <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
             <UserPlus size={12} /> Agregar candidato
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Selector de usuario */}
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold" style={{ color: 'var(--text-3)' }}>
+                Nombre completo (usuario del sistema) *
+              </label>
+              <div className="flex flex-col gap-1">
+                {/* Búsqueda */}
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-3)' }} />
+                  <input
+                    className="w-full rounded-lg pl-7 pr-3 py-2 text-xs"
+                    style={iStyle}
+                    placeholder="Buscar por nombre o R.U.…"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                  />
+                </div>
+                {/* Select */}
+                <select
+                  className="w-full rounded-lg px-3 py-2 text-xs cursor-pointer"
+                  style={{
+                    ...iStyle,
+                    background: selectedUserId ? 'var(--brand-light)' : 'var(--surface)',
+                    color: selectedUserId ? 'var(--brand)' : 'var(--text-2)',
+                    fontWeight: selectedUserId ? 600 : 400,
+                  }}
+                  value={selectedUserId}
+                  onChange={(e) => handleUserSelect(e.target.value)}
+                  size={Math.min(filteredUsers.length + 1, 5)}
+                >
+                  <option value="">— Seleccionar usuario —</option>
+                  {filteredUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.ru})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Cargo, frente, misión, foto */}
             {[
               { ph: 'Cargo *',             key: 'position' as const },
-              { ph: 'Nombre completo *',   key: 'candidateName' as const },
               { ph: 'Nombre del frente *', key: 'frontName' as const },
               { ph: 'Misión (opcional)',   key: 'mission' as const },
               { ph: 'URL foto (opcional)', key: 'photoUrl' as const },
@@ -309,13 +382,15 @@ function CandidatePanel({ election, candidateForm, setCandidateForm, onAdd, onRe
                 onChange={(e) => setCandidateForm((f) => ({ ...f, [key]: e.target.value }))}
               />
             ))}
+
             <button
-              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90"
+              className="sm:col-span-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: 'var(--brand)' }}
+              disabled={!candidateForm.candidateName || !candidateForm.position || !candidateForm.frontName}
               onClick={onAdd}
             >
               <Plus size={12} />
-              Agregar
+              Agregar candidato
             </button>
           </div>
         </div>
