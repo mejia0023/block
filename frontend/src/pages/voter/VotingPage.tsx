@@ -1,15 +1,18 @@
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, Loader2, AlertCircle, Vote } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, AlertCircle, Vote, Minus, Ban } from 'lucide-react';
 import { useElections } from '../../hooks/useElections';
 import { useAuthStore } from '../../store/auth.store';
 import api from '../../api/axios.config';
 import type { Candidate } from '../../types';
+
+type SpecialVote = 'votos_blancos' | 'votos_nulos';
 
 export default function VotingPage() {
   const { elections, loading } = useElections();
   const user = useAuthStore((s) => s.user);
 
   const [selected, setSelected] = useState<Candidate | null>(null);
+  const [specialVote, setSpecialVote] = useState<SpecialVote | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
@@ -18,14 +21,37 @@ export default function VotingPage() {
   const activeElections = elections.filter((e) => e.status === 'ACTIVA');
   const election = activeElections[0] ?? null;
 
+  const hasSelection = selected !== null || specialVote !== null;
+
+  const confirmLabel =
+    specialVote === 'votos_blancos' ? 'Voto en Blanco' :
+    specialVote === 'votos_nulos'   ? 'Voto Nulo' :
+    selected ? selected.candidateName : '';
+
+  const confirmSublabel =
+    specialVote === 'votos_blancos' ? 'No se asignará el voto a ningún candidato' :
+    specialVote === 'votos_nulos'   ? 'El voto será registrado como nulo' :
+    selected ? selected.frontName : '';
+
+  function selectCandidate(c: Candidate) {
+    setSelected(c);
+    setSpecialVote(null);
+  }
+
+  function selectSpecial(v: SpecialVote) {
+    setSpecialVote(v);
+    setSelected(null);
+  }
+
   async function handleVote() {
-    if (!selected || !election) return;
+    if (!election || !hasSelection) return;
     setSubmitting(true);
     setError(null);
     try {
+      const candidateId = specialVote ?? selected!.id;
       const { data } = await api.post<{ txId: string }>('/fabric/vote', {
         electionId: election.id,
-        candidateId: selected.id,
+        candidateId,
       });
       setTxId(data.txId);
       useAuthStore.getState().setAuth({
@@ -117,7 +143,7 @@ export default function VotingPage() {
           return (
             <button
               key={c.id}
-              onClick={() => setSelected(c)}
+              onClick={() => selectCandidate(c)}
               className="relative rounded-2xl p-5 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
               style={{
                 background: isSelected ? 'var(--brand-light)' : 'var(--surface)',
@@ -128,7 +154,6 @@ export default function VotingPage() {
               aria-pressed={isSelected}
               aria-label={`Votar por ${c.candidateName}`}
             >
-              {/* Avatar */}
               <div
                 className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden text-2xl font-bold"
                 style={{
@@ -166,6 +191,97 @@ export default function VotingPage() {
         })}
       </div>
 
+      {/* Special votes section */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+          <span className="text-xs font-medium" style={{ color: 'var(--text-3)' }}>o emitir voto especial</span>
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* Voto en blanco */}
+          {(() => {
+            const isSelected = specialVote === 'votos_blancos';
+            return (
+              <button
+                onClick={() => selectSpecial('votos_blancos')}
+                className="relative rounded-2xl p-4 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
+                style={{
+                  background: isSelected ? '#f0fdf4' : 'var(--surface)',
+                  border: `2px solid ${isSelected ? '#16a34a' : 'var(--border)'}`,
+                  boxShadow: isSelected ? '0 0 0 3px rgba(22,163,74,.15)' : 'var(--shadow-sm)',
+                  transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+                }}
+                aria-pressed={isSelected}
+                aria-label="Emitir voto en blanco"
+              >
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center"
+                  style={{
+                    background: isSelected ? '#16a34a' : 'var(--surface-2)',
+                    color: isSelected ? '#fff' : 'var(--text-3)',
+                  }}
+                >
+                  <Minus size={22} />
+                </div>
+                <div>
+                  <p className="font-bold text-sm" style={{ color: isSelected ? '#16a34a' : 'var(--text-1)' }}>
+                    Voto en Blanco
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Ningún candidato</p>
+                </div>
+                {isSelected && (
+                  <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#16a34a' }}>
+                    <CheckCircle2 size={12} className="text-white" />
+                  </div>
+                )}
+              </button>
+            );
+          })()}
+
+          {/* Voto nulo */}
+          {(() => {
+            const isSelected = specialVote === 'votos_nulos';
+            return (
+              <button
+                onClick={() => selectSpecial('votos_nulos')}
+                className="relative rounded-2xl p-4 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
+                style={{
+                  background: isSelected ? '#fff7ed' : 'var(--surface)',
+                  border: `2px solid ${isSelected ? '#ea580c' : 'var(--border)'}`,
+                  boxShadow: isSelected ? '0 0 0 3px rgba(234,88,12,.15)' : 'var(--shadow-sm)',
+                  transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+                }}
+                aria-pressed={isSelected}
+                aria-label="Emitir voto nulo"
+              >
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center"
+                  style={{
+                    background: isSelected ? '#ea580c' : 'var(--surface-2)',
+                    color: isSelected ? '#fff' : 'var(--text-3)',
+                  }}
+                >
+                  <Ban size={22} />
+                </div>
+                <div>
+                  <p className="font-bold text-sm" style={{ color: isSelected ? '#ea580c' : 'var(--text-1)' }}>
+                    Voto Nulo
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Voto inválido intencional</p>
+                </div>
+                {isSelected && (
+                  <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ea580c' }}>
+                    <CheckCircle2 size={12} className="text-white" />
+                  </div>
+                )}
+              </button>
+            );
+          })()}
+        </div>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
           <AlertCircle size={13} className="shrink-0" />
@@ -175,8 +291,8 @@ export default function VotingPage() {
 
       <button
         className="self-start flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-        style={{ background: selected ? 'var(--brand)' : 'var(--border-2)' }}
-        disabled={!selected}
+        style={{ background: hasSelection ? 'var(--brand)' : 'var(--border-2)' }}
+        disabled={!hasSelection}
         onClick={() => setConfirming(true)}
       >
         <Vote size={15} />
@@ -184,7 +300,7 @@ export default function VotingPage() {
       </button>
 
       {/* Confirm modal */}
-      {confirming && selected && (
+      {confirming && hasSelection && (
         <div
           className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
           style={{ background: 'rgba(0,0,0,.5)' }}
@@ -205,10 +321,10 @@ export default function VotingPage() {
               <div>
                 <h3 className="font-bold text-sm mb-1" style={{ color: 'var(--text-1)' }}>Confirmar Voto</h3>
                 <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-                  Estás a punto de votar por:
+                  Estás a punto de emitir:
                 </p>
-                <p className="font-bold text-sm mt-1.5" style={{ color: 'var(--text-1)' }}>{selected.candidateName}</p>
-                <p className="text-xs" style={{ color: 'var(--text-2)' }}>{selected.frontName}</p>
+                <p className="font-bold text-sm mt-1.5" style={{ color: 'var(--text-1)' }}>{confirmLabel}</p>
+                <p className="text-xs" style={{ color: 'var(--text-2)' }}>{confirmSublabel}</p>
               </div>
             </div>
 
