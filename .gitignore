@@ -7,8 +7,21 @@ fabric/network/fabric-ca/
 fabric/chaincode/evoting/dist/
 fabric/chaincode/evoting/node_modules/
 
-# Root-level artifacts
+# Dependencies
 node_modules/
 
-claude.md
+# Build outputs
+dist/
+build/
+
+# Environment files (never subir credenciales)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Claude
+CLAUDE.md
 .claude/
