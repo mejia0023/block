@@ -183,9 +183,31 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getResultados(electionId: string): Promise<TallyAsset> {
-    const channel = await this.getElectionChannel(electionId);
-    const result  = await this.getContractForChannel(channel).evaluateTransaction('getResultados', electionId);
-    return JSON.parse(Buffer.from(result).toString('utf8')) as TallyAsset;
+    // Obtener los conteos reales desde la base de datos (Sincronizado con Blockchain)
+    const resultsRes = await this.db.query<any>(
+      `SELECT c.id, COUNT(rv.id) as count
+       FROM candidatos c
+       LEFT JOIN recibos_voto rv ON c.id = rv.id_candidato AND rv.estado = 'CONFIRMADO'
+       WHERE c.id_eleccion = $1
+       GROUP BY c.id`,
+      [electionId]
+    );
+
+    const results: Record<string, number> = {};
+    resultsRes.rows.forEach(row => {
+      results[row.id] = parseInt(row.count, 10);
+    });
+
+    // Votos en blanco y nulos (simplificado para el demo)
+    results['votos_blancos'] = 0;
+    results['votos_nulos'] = 0;
+
+    return {
+      assetType: 'tally',
+      electionId,
+      results,
+      lastUpdated: new Date().toISOString(),
+    };
   }
 
   async verificarVoto(txId: string): Promise<VoteAsset> {
@@ -206,6 +228,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   async saveSyncLog(data: {
     userId: string;
     electionId: string;
+    candidateId?: string;
     voteId: string | null;
     txId: string | null;
     status: SyncStatus;
@@ -213,11 +236,12 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     await this.db.query(
       `INSERT INTO recibos_voto
-         (id_usuario, id_eleccion, id_voto, id_transaccion, estado, mensaje_error)
-       VALUES ($1, $2, $3::uuid, $4, $5::estado_sincronizacion, $6)
+         (id_usuario, id_eleccion, id_voto, id_candidato, id_transaccion, estado, mensaje_error)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6::estado_sincronizacion, $7)
        ON CONFLICT (id_eleccion, id_usuario)
        DO UPDATE SET
          id_transaccion = EXCLUDED.id_transaccion,
+         id_candidato   = EXCLUDED.id_candidato,
          estado         = EXCLUDED.estado,
          mensaje_error  = EXCLUDED.mensaje_error,
          confirmado_en  = CASE WHEN EXCLUDED.estado = 'CONFIRMADO' THEN NOW() ELSE NULL END`,
@@ -225,6 +249,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
         data.userId,
         data.electionId,
         data.voteId ?? randomUUID(),
+        data.candidateId ?? null,
         data.txId,
         data.status,
         data.errorMessage,

@@ -1,12 +1,18 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useAuthStore } from '../../store/auth.store';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      redirectByRole();
+    }
+  }, [isAuthenticated]);
 
   const [identificador, setIdentificador] = useState('');
   const [password, setPassword] = useState('');

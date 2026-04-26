@@ -17,7 +17,6 @@ import { EmitVoteDto } from './dto/emit-vote.dto';
 import { FabricService } from './fabric.service';
 
 @Controller('fabric')
-@UseGuards(JwtAuthGuard)
 export class FabricController {
   constructor(
     private readonly fabricService: FabricService,
@@ -33,6 +32,7 @@ export class FabricController {
    * Si Fabric falla: guarda FALLIDO, no marca votado
    */
   @Post('vote')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   async vote(
     @Req() req: Request & { user: { userId: string } },
@@ -50,6 +50,7 @@ export class FabricController {
       await this.fabricService.saveSyncLog({
         userId,
         electionId: dto.electionId,
+        candidateId: dto.candidateId,
         voteId: null,
         txId: null,
         status: 'FALLIDO',
@@ -63,6 +64,7 @@ export class FabricController {
     await this.fabricService.saveSyncLog({
       userId,
       electionId: dto.electionId,
+      candidateId: dto.candidateId,
       voteId,
       txId,
       status: 'CONFIRMADO',

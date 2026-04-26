@@ -10,5 +10,5 @@ export function useAuth() {
     setAuth(data);
   }
 
-  return { user, token, login, logout, isAdmin, isAuthenticated: !!token };
+  return { user, token, login, logout, isAdmin, isAuthenticated: !!token && !!user };
 }

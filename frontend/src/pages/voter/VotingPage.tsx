@@ -1,369 +1,247 @@
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, Loader2, AlertCircle, Vote, Minus, Ban } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, AlertCircle, Vote, Minus, Ban, Users } from 'lucide-react';
 import { useElections } from '../../hooks/useElections';
 import { useAuthStore } from '../../store/auth.store';
 import api from '../../api/axios.config';
-import type { Candidate } from '../../types';
-
-type SpecialVote = 'votos_blancos' | 'votos_nulos';
 
 export default function VotingPage() {
   const { elections, loading } = useElections();
   const user = useAuthStore((s) => s.user);
 
-  const [selected, setSelected] = useState<Candidate | null>(null);
-  const [specialVote, setSpecialVote] = useState<SpecialVote | null>(null);
+  // Mapa de electionId -> candidateId o 'votos_blancos'/'votos_nulos'
+  const [selections, setSelections] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [txId, setTxId] = useState<string | null>(null);
+  const [results, setResults] = useState<Array<{ title: string, txId: string }>>([]);
   const [error, setError] = useState<string | null>(null);
 
   const activeElections = elections.filter((e) => e.status === 'ACTIVA');
-  const election = activeElections[0] ?? null;
+  
+  // Verificamos si ya ha votado o si ya tenemos resultados en esta sesión
+  const allVoted = user?.hasVoted || (results.length > 0 && results.length === activeElections.length);
 
-  const hasSelection = selected !== null || specialVote !== null;
-
-  const confirmLabel =
-    specialVote === 'votos_blancos' ? 'Voto en Blanco' :
-    specialVote === 'votos_nulos'   ? 'Voto Nulo' :
-    selected ? selected.candidateName : '';
-
-  const confirmSublabel =
-    specialVote === 'votos_blancos' ? 'No se asignará el voto a ningún candidato' :
-    specialVote === 'votos_nulos'   ? 'El voto será registrado como nulo' :
-    selected ? selected.frontName : '';
-
-  function selectCandidate(c: Candidate) {
-    setSelected(c);
-    setSpecialVote(null);
-  }
-
-  function selectSpecial(v: SpecialVote) {
-    setSpecialVote(v);
-    setSelected(null);
+  function toggleSelection(electionId: string, choiceId: string) {
+    setSelections(prev => ({
+      ...prev,
+      [electionId]: choiceId
+    }));
   }
 
   async function handleVote() {
-    if (!election || !hasSelection) return;
+    if (activeElections.length === 0) return;
+    
+    const missing = activeElections.filter(e => !selections[e.id]);
+    if (missing.length > 0) {
+      setError(`Pendiente: Marca una opción en todas las papeletas.`);
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    const newResults: Array<{ title: string, txId: string }> = [];
+
     try {
-      const candidateId = specialVote ?? selected!.id;
-      const { data } = await api.post<{ txId: string }>('/fabric/vote', {
-        electionId: election.id,
-        candidateId,
-      });
-      setTxId(data.txId);
+      for (const election of activeElections) {
+        const candidateId = selections[election.id];
+        const { data } = await api.post<{ txId: string }>('/fabric/vote', {
+          electionId: election.id,
+          candidateId,
+        });
+        newResults.push({ title: election.title, txId: data.txId });
+      }
+
+      setResults(newResults);
       useAuthStore.getState().setAuth({
         access_token: useAuthStore.getState().token!,
         user: { ...user!, hasVoted: true },
       });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setError(msg ?? 'Error al emitir el voto. Intenta de nuevo.');
+      setError(msg ?? 'Error al registrar los votos.');
     } finally {
       setSubmitting(false);
       setConfirming(false);
     }
   }
 
-  /* ── Already voted ─────────────────────────────────────────────────────── */
-  if (user?.hasVoted || txId) {
+  if (allVoted) {
     return (
-      <div className="flex items-center justify-center p-12 animate-fade-in">
-        <div
-          className="rounded-2xl p-10 text-center max-w-md w-full animate-scale-in"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-xl)' }}
-        >
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5"
-            style={{ background: 'var(--status-active-bg)' }}
-          >
-            <CheckCircle2 size={32} style={{ color: 'var(--status-active)' }} />
-          </div>
-          <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--text-1)' }}>Voto Registrado</h2>
-          <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-            Tu voto ha sido registrado exitosamente en la blockchain.
-          </p>
-          {txId && (
-            <div
-              className="mt-6 rounded-xl p-4 text-left"
-              style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
-            >
-              <span className="block text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-3)' }}>
-                ID de Transacción
-              </span>
-              <code className="text-xs break-all" style={{ color: 'var(--text-2)', fontFamily: 'monospace' }}>
-                {txId}
-              </code>
-            </div>
-          )}
-          {!txId && (
-            <p className="mt-4 text-xs" style={{ color: 'var(--text-3)' }}>
-              Tu voto fue registrado en una sesión anterior.
-            </p>
-          )}
+      <div className="max-w-2xl mx-auto flex flex-col items-center gap-8 animate-fade-in py-12">
+        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center shadow-sm">
+          <CheckCircle2 size={48} />
         </div>
+        <div className="text-center">
+          <h2 className="text-3xl font-black tracking-tighter uppercase italic text-slate-800">¡Votación Completada!</h2>
+          <p className="text-sm text-slate-500 font-bold mt-2 uppercase tracking-widest">Tus votos han sido blindados con éxito</p>
+        </div>
+
+        <div className="w-full flex flex-col gap-4">
+          {(results.length > 0 ? results : [{ title: 'Proceso Electoral', txId: 'Registrado anteriormente' }]).map((res, i) => (
+            <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">{res.title}</span>
+              <code className="text-[10px] text-slate-400 break-all font-mono">{res.txId}</code>
+            </div>
+          ))}
+        </div>
+
+        <a href="/elecciones" className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all">
+          Ver Resultados en Vivo
+        </a>
       </div>
     );
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center h-48" style={{ color: 'var(--text-3)' }}>
-      <div className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+    <div className="flex items-center justify-center h-96 text-indigo-600">
+      <Loader2 size={48} className="animate-spin opacity-20" />
     </div>
   );
 
-  if (!election) {
+  if (activeElections.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-16 gap-3">
-        <Vote size={32} style={{ color: 'var(--text-3)' }} />
-        <p className="text-sm" style={{ color: 'var(--text-2)' }}>No hay elecciones activas en este momento.</p>
+      <div className="flex flex-col items-center justify-center p-24 gap-4 text-slate-300">
+        <Vote size={64} className="opacity-20" />
+        <p className="text-sm font-black uppercase tracking-widest">No hay papeletas activas</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6 animate-slide-up max-w-3xl">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>{election.title}</h2>
-        {election.description && (
-          <p className="text-sm mt-1" style={{ color: 'var(--text-2)' }}>{election.description}</p>
-        )}
-        <p className="text-sm mt-2" style={{ color: 'var(--text-3)' }}>
-          Selecciona un candidato y presiona <strong style={{ color: 'var(--text-2)' }}>Emitir Voto</strong>
-        </p>
+    <>
+    <div className="max-w-5xl mx-auto flex flex-col gap-16 animate-slide-up pb-40 pt-6">
+      
+      <div className="text-center border-b border-slate-100 pb-10">
+        <h2 className="text-4xl font-black tracking-tighter uppercase italic text-slate-800">Centro de Votación</h2>
+        <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-[0.3em]">Emita su voto marcando una casilla por papeleta</p>
       </div>
 
-      {/* Candidate grid */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(185px,1fr))] gap-4">
-        {election.candidates.map((c) => {
-          const isSelected = selected?.id === c.id;
-          return (
-            <button
-              key={c.id}
-              onClick={() => selectCandidate(c)}
-              className="relative rounded-2xl p-5 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
-              style={{
-                background: isSelected ? 'var(--brand-light)' : 'var(--surface)',
-                border: `2px solid ${isSelected ? 'var(--brand)' : 'var(--border)'}`,
-                boxShadow: isSelected ? `0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent), var(--shadow)` : 'var(--shadow-sm)',
-                transform: isSelected ? 'scale(1.02)' : 'scale(1)',
-              }}
-              aria-pressed={isSelected}
-              aria-label={`Votar por ${c.candidateName}`}
-            >
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden text-2xl font-bold"
-                style={{
-                  background: isSelected ? 'var(--brand)' : 'var(--surface-2)',
-                  color: isSelected ? '#fff' : 'var(--brand)',
-                }}
-              >
-                {c.photoUrl ? (
-                  <img src={c.photoUrl} alt={c.candidateName} className="w-full h-full object-cover" />
-                ) : (
-                  c.candidateName.charAt(0).toUpperCase()
-                )}
-              </div>
-
-              <div>
-                <p className="font-bold text-sm" style={{ color: isSelected ? 'var(--brand)' : 'var(--text-1)' }}>
-                  {c.candidateName}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-2)' }}>{c.frontName}</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wider mt-1" style={{ color: 'var(--text-3)' }}>
-                  {c.position}
-                </p>
-              </div>
-
-              {isSelected && (
-                <div
-                  className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center"
-                  style={{ background: 'var(--brand)' }}
-                >
-                  <CheckCircle2 size={12} className="text-white" />
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Special votes section */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-          <span className="text-xs font-medium" style={{ color: 'var(--text-3)' }}>o emitir voto especial</span>
-          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          {/* Voto en blanco */}
-          {(() => {
-            const isSelected = specialVote === 'votos_blancos';
-            return (
-              <button
-                onClick={() => selectSpecial('votos_blancos')}
-                className="relative rounded-2xl p-4 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
-                style={{
-                  background: isSelected ? '#f0fdf4' : 'var(--surface)',
-                  border: `2px solid ${isSelected ? '#16a34a' : 'var(--border)'}`,
-                  boxShadow: isSelected ? '0 0 0 3px rgba(22,163,74,.15)' : 'var(--shadow-sm)',
-                  transform: isSelected ? 'scale(1.02)' : 'scale(1)',
-                }}
-                aria-pressed={isSelected}
-                aria-label="Emitir voto en blanco"
-              >
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center"
-                  style={{
-                    background: isSelected ? '#16a34a' : 'var(--surface-2)',
-                    color: isSelected ? '#fff' : 'var(--text-3)',
-                  }}
-                >
-                  <Minus size={22} />
-                </div>
-                <div>
-                  <p className="font-bold text-sm" style={{ color: isSelected ? '#16a34a' : 'var(--text-1)' }}>
-                    Voto en Blanco
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Ningún candidato</p>
-                </div>
-                {isSelected && (
-                  <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#16a34a' }}>
-                    <CheckCircle2 size={12} className="text-white" />
-                  </div>
-                )}
-              </button>
-            );
-          })()}
-
-          {/* Voto nulo */}
-          {(() => {
-            const isSelected = specialVote === 'votos_nulos';
-            return (
-              <button
-                onClick={() => selectSpecial('votos_nulos')}
-                className="relative rounded-2xl p-4 text-center cursor-pointer border-0 transition-all duration-200 flex flex-col items-center gap-2"
-                style={{
-                  background: isSelected ? '#fff7ed' : 'var(--surface)',
-                  border: `2px solid ${isSelected ? '#ea580c' : 'var(--border)'}`,
-                  boxShadow: isSelected ? '0 0 0 3px rgba(234,88,12,.15)' : 'var(--shadow-sm)',
-                  transform: isSelected ? 'scale(1.02)' : 'scale(1)',
-                }}
-                aria-pressed={isSelected}
-                aria-label="Emitir voto nulo"
-              >
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center"
-                  style={{
-                    background: isSelected ? '#ea580c' : 'var(--surface-2)',
-                    color: isSelected ? '#fff' : 'var(--text-3)',
-                  }}
-                >
-                  <Ban size={22} />
-                </div>
-                <div>
-                  <p className="font-bold text-sm" style={{ color: isSelected ? '#ea580c' : 'var(--text-1)' }}>
-                    Voto Nulo
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>Voto inválido intencional</p>
-                </div>
-                {isSelected && (
-                  <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: '#ea580c' }}>
-                    <CheckCircle2 size={12} className="text-white" />
-                  </div>
-                )}
-              </button>
-            );
-          })()}
-        </div>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
-          <AlertCircle size={13} className="shrink-0" />
-          {error}
-        </div>
-      )}
-
-      <button
-        className="self-start flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-        style={{ background: hasSelection ? 'var(--brand)' : 'var(--border-2)' }}
-        disabled={!hasSelection}
-        onClick={() => setConfirming(true)}
-      >
-        <Vote size={15} />
-        Emitir Voto
-      </button>
-
-      {/* Confirm modal */}
-      {confirming && hasSelection && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
-          style={{ background: 'rgba(0,0,0,.5)' }}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-[380px] mx-4 rounded-2xl p-7 flex flex-col gap-5 animate-scale-in"
-            style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border)' }}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'var(--brand-light)' }}
-              >
-                <Vote size={17} style={{ color: 'var(--brand)' }} />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm mb-1" style={{ color: 'var(--text-1)' }}>Confirmar Voto</h3>
-                <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-                  Estás a punto de emitir:
-                </p>
-                <p className="font-bold text-sm mt-1.5" style={{ color: 'var(--text-1)' }}>{confirmLabel}</p>
-                <p className="text-xs" style={{ color: 'var(--text-2)' }}>{confirmSublabel}</p>
-              </div>
+      {activeElections.map((election, index) => (
+        <section key={election.id} className="flex flex-col gap-8 animate-fade-in">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center text-sm font-black italic">
+              {index + 1}
             </div>
-
-            <div
-              className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs"
-              style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}
-            >
-              <AlertTriangle size={13} className="shrink-0" />
-              Esta acción es irreversible.
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
-                <AlertCircle size={13} className="shrink-0" />
-                {error}
-              </div>
-            )}
-
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setConfirming(false)}
-                disabled={submitting}
-                className="px-4 py-2.5 rounded-xl text-sm font-medium cursor-pointer border transition-colors disabled:opacity-60"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', borderColor: 'var(--border)' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleVote}
-                disabled={submitting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-60"
-                style={{ background: 'var(--brand)' }}
-              >
-                {submitting ? <><Loader2 size={13} className="animate-spin" /> Registrando…</> : 'Confirmar Voto'}
-              </button>
+            <div>
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">{election.title}</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{election.description || 'Elección Oficial'}</p>
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {election.candidates.map((c) => {
+              const isSelected = selections[election.id] === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => toggleSelection(election.id, c.id)}
+                  className={`group relative flex flex-col bg-white rounded-[1.5rem] overflow-hidden border-2 transition-all duration-300 ${
+                    isSelected ? 'border-indigo-600 shadow-xl ring-4 ring-indigo-500/5 scale-[1.02]' : 'border-slate-100 hover:border-slate-200'
+                  }`}
+                >
+                  <div className="h-40 bg-slate-50 relative overflow-hidden">
+                    {c.photoUrl ? (
+                      <img src={c.photoUrl} alt={c.candidateName} className="w-full h-full object-cover grayscale-[0.5] group-hover:grayscale-0 transition-all" />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-200 gap-1">
+                        <Users size={32} />
+                        <span className="text-[8px] font-black uppercase opacity-30">Candidato</span>
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-indigo-600/10 flex items-center justify-center">
+                        <div className="bg-white text-indigo-600 p-2 rounded-full shadow-lg">
+                          <CheckCircle2 size={24} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-4 text-center">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-indigo-500">{c.frontName}</span>
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight leading-tight mt-0.5">{c.candidateName}</h4>
+                  </div>
+                </button>
+              );
+            })}
+            
+            <div className="grid grid-cols-2 gap-2 col-span-1 sm:col-span-2 lg:col-span-4 mt-2">
+               <button 
+                onClick={() => toggleSelection(election.id, 'votos_blancos')}
+                className={`flex items-center justify-center gap-3 p-3 rounded-xl border-2 transition-all ${selections[election.id] === 'votos_blancos' ? 'bg-slate-50 border-slate-800' : 'bg-white border-slate-50 opacity-40'}`}
+               >
+                 <Minus size={14} className="text-slate-400" />
+                 <span className="text-[9px] font-black uppercase tracking-widest">Blanco</span>
+               </button>
+               <button 
+                onClick={() => toggleSelection(election.id, 'votos_nulos')}
+                className={`flex items-center justify-center gap-3 p-3 rounded-xl border-2 transition-all ${selections[election.id] === 'votos_nulos' ? 'bg-red-50 border-red-600' : 'bg-white border-slate-50 opacity-40'}`}
+               >
+                 <Ban size={14} className="text-red-400" />
+                 <span className="text-[9px] font-black uppercase tracking-widest">Nulo</span>
+               </button>
+            </div>
+          </div>
+        </section>
+      ))}
+
+      <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/80 backdrop-blur-md border-t border-slate-100 flex flex-col items-center gap-3 z-40">
+        {error && <p className="text-[10px] text-red-600 font-black uppercase bg-red-50 px-4 py-2 rounded-full border border-red-100">{error}</p>}
+        <button
+          onClick={() => setConfirming(true)}
+          className={`flex items-center gap-4 px-16 py-6 rounded-full text-sm font-black uppercase tracking-[0.2em] transition-all shadow-2xl active:scale-95 ${
+            Object.keys(selections).length === activeElections.length ? 'bg-indigo-600 text-white hover:bg-indigo-500' : 'bg-slate-200 text-slate-400 grayscale cursor-not-allowed'
+          }`}
+        >
+          <Vote size={20} />
+          Registrar Votos Oficiales
+        </button>
+      </div>
+
     </div>
-  );
+    {/* MODAL MOVIDO FUERA DEL CONTENEDOR ANIMADO PARA CENTRADO PERFECTO */}
+    {confirming && (
+      <div className="fixed inset-0 flex items-center justify-center z-[100] p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+        <div className="w-full max-w-lg bg-white rounded-[2.5rem] p-10 flex flex-col gap-6 shadow-2xl animate-scale-in border border-slate-100">
+          <div className="text-center">
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Resumen Final</h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">Verifique sus selecciones antes del registro inmutable</p>
+          </div>
+
+          <div className="flex flex-col gap-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+            {activeElections.map(e => {
+              const choiceId = selections[e.id];
+              const candidate = e.candidates.find(c => c.id === choiceId);
+              const label = choiceId === 'votos_blancos' ? 'Blanco' : choiceId === 'votos_nulos' ? 'Nulo' : candidate?.candidateName;
+              return (
+                <div key={e.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex flex-col">
+                    <span className="text-[8px] font-black uppercase text-slate-400">{e.title}</span>
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{label}</span>
+                  </div>
+                  <CheckCircle2 size={16} className="text-indigo-600" />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleVote}
+              disabled={submitting}
+              className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black uppercase tracking-widest text-xs hover:bg-indigo-500 transition-all flex items-center justify-center gap-3 shadow-xl"
+            >
+              {submitting ? <Loader2 size={16} className="animate-spin" /> : 'SÍ, CONFIRMO MI VOTO'}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={submitting}
+              className="w-full py-4 rounded-2xl bg-white text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:text-slate-600 transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
+);
 }

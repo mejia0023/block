@@ -24,7 +24,7 @@ const ROLE_STYLE: Partial<Record<RoleType, { color: string; bg: string }>> = {
   AUDITOR:       { color: 'var(--status-counted)', bg: 'var(--status-counted-bg)' },
 };
 
-const EMPTY_FORM = { ru: '', name: '', email: '', password: '', career: 'SISTEMAS' as CareerType, role: 'VOTANTE' as RoleType };
+const EMPTY_FORM = { identificador: '', name: '', email: '', password: '', career: 'SISTEMAS' as CareerType, role: 'VOTANTE' as RoleType };
 type FormMode = { type: 'create' } | { type: 'edit'; user: User };
 
 export default function UsersPage() {
@@ -54,7 +54,14 @@ export default function UsersPage() {
 
   function openCreate() { setForm(EMPTY_FORM); setFormError(''); setMode({ type: 'create' }); }
   function openEdit(user: User) {
-    setForm({ ru: user.ru, name: user.name, email: user.email, password: '', career: user.career, role: user.role });
+    setForm({ 
+      identificador: user.ru || user.identificador || '', 
+      name: user.name, 
+      email: user.email, 
+      password: '', 
+      career: user.career, 
+      role: user.role 
+    });
     setFormError(''); setMode({ type: 'edit', user });
   }
   function closeForm() { setMode(null); }
@@ -65,7 +72,7 @@ export default function UsersPage() {
       if (mode?.type === 'create') {
         await api.post('/users', form);
       } else if (mode?.type === 'edit') {
-        const payload: Partial<typeof form> = { ...form };
+        const payload: any = { ...form };
         if (!payload.password) delete payload.password;
         await api.patch(`/users/${mode.user.id}`, payload);
       }
@@ -91,7 +98,7 @@ export default function UsersPage() {
 
   const filtered = users.filter((u) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || u.ru.toLowerCase().includes(q) || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    const matchSearch = !q || (u.ru || u.identificador || '').toLowerCase().includes(q) || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
     return matchSearch && (!filterRole || u.role === filterRole);
   });
 
@@ -143,7 +150,7 @@ export default function UsersPage() {
           <input
             className="w-full pl-8 pr-3 py-2 rounded-lg text-sm"
             style={inputBase}
-            placeholder="Buscar por R.U., nombre o email…"
+            placeholder="Buscar por registro, nombre o email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -171,7 +178,7 @@ export default function UsersPage() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr style={{ background: 'var(--surface-2)' }}>
-                {['R.U.', 'Nombre', 'Email', 'Carrera', 'Rol', 'Votó', 'Estado', 'Acciones'].map((h) => (
+                {['Registro', 'Nombre', 'Email', 'Carrera', 'Rol', 'Votó', 'Estado', 'Acciones'].map((h) => (
                   <th
                     key={h}
                     className="text-left px-5 py-3 text-xs font-semibold border-b whitespace-nowrap"
@@ -203,7 +210,7 @@ export default function UsersPage() {
                   >
                     <td className="px-5 py-3">
                       <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-2)', fontFamily: 'monospace' }}>
-                        {user.ru}
+                        {user.identificador || user.ru}
                       </code>
                     </td>
                     <td className="px-5 py-3 font-medium" style={{ color: 'var(--text-1)' }}>{user.name}</td>
@@ -263,79 +270,151 @@ export default function UsersPage() {
       {/* Modal */}
       {mode && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
-          style={{ background: 'rgba(0,0,0,.5)' }}
+          className="fixed inset-0 flex items-center justify-center z-50 p-4 sm:p-6 animate-fade-in"
+          style={{ background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(8px)' }}
           onClick={closeForm}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="w-[480px] max-w-[95vw] max-h-[90vh] overflow-y-auto rounded-2xl p-7 animate-scale-in"
-            style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border)' }}
+            className="w-full max-w-xl bg-white rounded-3xl overflow-hidden shadow-2xl animate-scale-in"
+            style={{ 
+              background: 'var(--surface)', 
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: 'min(90vh, 700px)'
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-bold mb-6" style={{ color: 'var(--text-1)' }}>
-              {mode.type === 'create' ? 'Nuevo usuario' : 'Editar usuario'}
-            </h3>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              {[
-                { id: 'ru',    label: 'R.U.',          type: 'text',     value: form.ru,    disabled: mode.type === 'edit', required: true,                   onChange: (v: string) => setForm({ ...form, ru: v }) },
-                { id: 'name',  label: 'Nombre completo', type: 'text',   value: form.name,  disabled: false,               required: true,                   onChange: (v: string) => setForm({ ...form, name: v }) },
-                { id: 'email', label: 'Email',          type: 'email',   value: form.email, disabled: false,               required: true,                   onChange: (v: string) => setForm({ ...form, email: v }) },
-                { id: 'pwd',   label: mode.type === 'edit' ? 'Nueva contraseña (vacío = no cambiar)' : 'Contraseña', type: 'password', value: form.password, disabled: false, required: mode.type === 'create', onChange: (v: string) => setForm({ ...form, password: v }) },
-              ].map(({ id, label, type, value, disabled, required, onChange }) => (
-                <div key={id} className="flex flex-col gap-1.5">
-                  <label htmlFor={id} className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>{label}</label>
+            {/* Modal Header */}
+            <div className="px-8 py-6 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+              <div>
+                <h3 className="text-lg font-bold" style={{ color: 'var(--text-1)' }}>
+                  {mode.type === 'create' ? 'Registrar Nuevo Usuario' : 'Editar Perfil de Usuario'}
+                </h3>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+                  {mode.type === 'create' ? 'Completa los datos para el nuevo miembro del padrón.' : 'Actualiza la información del usuario seleccionado.'}
+                </p>
+              </div>
+              <button 
+                onClick={closeForm}
+                className="p-2 rounded-full hover:bg-slate-100 transition-colors cursor-pointer border-0 bg-transparent"
+                style={{ color: 'var(--text-3)' }}
+              >
+                <Trash2 size={18} className="rotate-45" /> {/* Usando trash rotado como X provisional si no hay X icon */}
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 custom-scrollbar">
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Identificador / Registro */}
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="identificador" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>Registro (R.U. / C.I.)</label>
                   <input
-                    id={id} type={type} value={value} required={required} disabled={disabled}
-                    onChange={(e) => onChange(e.target.value)}
-                    className="w-full rounded-lg px-3.5 py-2.5 text-sm"
-                    style={{ ...inputBase, background: disabled ? 'var(--surface-2)' : 'var(--surface)', opacity: disabled ? 0.6 : 1, minLength: type === 'password' ? 6 : undefined } as React.CSSProperties}
+                    id="identificador" type="text" value={form.identificador} required disabled={mode.type === 'edit'}
+                    onChange={(e) => setForm({ ...form, identificador: e.target.value })}
+                    placeholder="Ej: 21900123"
+                    className="w-full rounded-xl px-4 py-3 text-sm transition-all focus:ring-2 focus:ring-indigo-500/20"
+                    style={{ ...inputBase, background: mode.type === 'edit' ? 'var(--surface-2)' : 'var(--surface)', opacity: mode.type === 'edit' ? 0.7 : 1 } as React.CSSProperties}
                   />
                 </div>
-              ))}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="career" className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Carrera</label>
-                  <select id="career" className="rounded-lg px-3.5 py-2.5 text-sm cursor-pointer" style={inputBase} value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value as CareerType })}>
+                {/* Email */}
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="email" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>Correo Institucional</label>
+                  <input
+                    id="email" type="email" value={form.email} required
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="usuario@uagrm.edu.bo"
+                    className="w-full rounded-xl px-4 py-3 text-sm transition-all focus:ring-2 focus:ring-indigo-500/20"
+                    style={inputBase}
+                  />
+                </div>
+              </div>
+
+              {/* Nombre Completo */}
+              <div className="flex flex-col gap-2">
+                <label htmlFor="name" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>Nombre Completo</label>
+                <input
+                  id="name" type="text" value={form.name} required
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Ej: Juan Perez Garcia"
+                  className="w-full rounded-xl px-4 py-3 text-sm transition-all focus:ring-2 focus:ring-indigo-500/20"
+                  style={inputBase}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Carrera */}
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="career" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>Carrera / Facultad</label>
+                  <select id="career" className="rounded-xl px-4 py-3 text-sm cursor-pointer transition-all" style={inputBase} value={form.career} onChange={(e) => setForm({ ...form, career: e.target.value as CareerType })}>
                     {CAREERS.map((c) => <option key={c} value={c}>{CAREER_LABELS[c]}</option>)}
                   </select>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="role" className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Rol</label>
-                  <select id="role" className="rounded-lg px-3.5 py-2.5 text-sm cursor-pointer" style={inputBase} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as RoleType })}>
+
+                {/* Rol */}
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="role" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>Rol de Acceso</label>
+                  <select id="role" className="rounded-xl px-4 py-3 text-sm cursor-pointer transition-all" style={inputBase} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as RoleType })}>
                     {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </div>
               </div>
 
+              {/* Contraseña */}
+              <div className="flex flex-col gap-2">
+                <label htmlFor="pwd" className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
+                  {mode.type === 'edit' ? 'Cambiar Contraseña (Opcional)' : 'Contraseña de Acceso'}
+                </label>
+                <input
+                  id="pwd" type="password" value={form.password} required={mode.type === 'create'}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={mode.type === 'edit' ? 'Dejar en blanco para no cambiar' : 'Mínimo 6 caracteres'}
+                  minLength={6}
+                  className="w-full rounded-xl px-4 py-3 text-sm transition-all focus:ring-2 focus:ring-indigo-500/20"
+                  style={inputBase}
+                />
+              </div>
+
               {formError && (
-                <div className="flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-xs" style={{ background: 'var(--error-bg)', color: 'var(--error)' }}>
-                  <AlertCircle size={13} className="shrink-0" />
-                  {formError}
+                <div className="flex items-start gap-3 rounded-2xl px-4 py-3 text-xs animate-shake" style={{ background: 'var(--error-bg)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 20%, transparent)' }}>
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{formError}</span>
                 </div>
               )}
-
-              <div className="flex justify-end gap-2.5 mt-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium cursor-pointer border transition-colors"
-                  style={{ background: 'var(--surface-2)', color: 'var(--text-2)', borderColor: 'var(--border)' }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity disabled:opacity-60"
-                  style={{ background: 'var(--brand)' }}
-                >
-                  {saving ? 'Guardando…' : mode.type === 'create' ? 'Crear' : 'Guardar'}
-                </button>
-              </div>
             </form>
+
+            {/* Modal Footer */}
+            <div className="px-8 py-6 bg-slate-50/50 border-t flex justify-end gap-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}>
+              <button
+                type="button"
+                onClick={closeForm}
+                className="px-6 py-2.5 rounded-xl text-sm font-semibold cursor-pointer border transition-all hover:bg-white active:scale-95"
+                style={{ background: 'var(--surface)', color: 'var(--text-2)', borderColor: 'var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                onClick={handleSubmit}
+                disabled={saving}
+                className="px-8 py-2.5 rounded-xl text-sm font-bold text-white border-0 cursor-pointer shadow-lg shadow-indigo-500/25 transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+                style={{ background: 'var(--brand)' }}
+              >
+                {saving ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Guardando…</span>
+                  </div>
+                ) : (
+                  mode.type === 'create' ? 'Crear Usuario' : 'Guardar Cambios'
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

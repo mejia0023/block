@@ -273,4 +273,10 @@ CREATE TABLE configuracion_usuario (
   );
   INSERT INTO canales_fabric (nombre, descripcion) VALUES
     ('evoting', 'Canal principal de votaciÃ³n FICCT');
-  "
+
+-- DATOS INICIALES
+INSERT INTO organizaciones (id, nombre, slug) VALUES ('00000000-0000-0000-0000-000000000001', 'Facultad de Ingeniería', 'ficct');
+INSERT INTO usuarios (id_organizacion, identificador, nombre, email, hash_contrasena, rol) VALUES ('00000000-0000-0000-0000-000000000001', 'admin', 'Admin FICCT', 'admin@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'ADMINISTRADOR'), ('00000000-0000-0000-0000-000000000001', 'estudiante1', 'Juan Perez', 'juan@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'VOTANTE'), ('00000000-0000-0000-0000-000000000001', 'auditor', 'Auditor Externo', 'auditor@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'AUDITOR');
+INSERT INTO elecciones (id, id_organizacion, titulo, descripcion, nombre_cargo, fecha_inicio, fecha_fin, estado) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Elecciones de Centro de Estudiantes 2026', 'Votación anual para representantes estudiantiles', 'Delegado ICU', NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', 'ACTIVA');
+INSERT INTO candidatos (id_eleccion, nombre_frente, nombre_candidato, nombre_cargo, orden_boleta) VALUES ('00000000-0000-0000-0000-00000000000a', 'Frente Estudiantil Unido', 'Carlos Gomez', 'Delegado Principal', 1), ('00000000-0000-0000-0000-00000000000a', 'Innovación FICCT', 'Maria Lopez', 'Delegado Principal', 2);
+INSERT INTO padron_electoral (id_eleccion, id_usuario) VALUES ('00000000-0000-0000-0000-00000000000a', (SELECT id FROM usuarios WHERE identificador = 'estudiante1'));

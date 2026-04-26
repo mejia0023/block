@@ -17,7 +17,10 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
-      window.location.href = '/login';
+      // No redirigir si estamos en la vista pública
+      if (!window.location.pathname.startsWith('/elecciones')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },
