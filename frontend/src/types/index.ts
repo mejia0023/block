@@ -54,6 +54,7 @@ export interface Election {
   status: EstadoEleccion;
   startDate: string;
   endDate: string;
+  channelName: string;
   candidates: Candidate[];
   createdAt: string;
 }

@@ -44,8 +44,9 @@ export class FabricController {
 
     let txId: string;
     let voteId: string;
+    let channel: string;
     try {
-      ({ txId, voteId } = await this.fabricService.emitirVoto(userId, dto.electionId, dto.candidateId));
+      ({ txId, voteId, channel } = await this.fabricService.emitirVoto(userId, dto.electionId, dto.candidateId));
     } catch (err) {
       await this.fabricService.saveSyncLog({
         userId,
@@ -69,9 +70,10 @@ export class FabricController {
       txId,
       status: 'CONFIRMADO',
       errorMessage: null,
+      canal: channel,
     });
 
-    return { txId };
+    return { txId, channel };
   }
 
   @Get('results/:electionId')

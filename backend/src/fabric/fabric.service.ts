@@ -165,7 +165,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     _userId: string,
     electionId: string,
     candidateId: string,
-  ): Promise<{ txId: string; voteId: string }> {
+  ): Promise<{ txId: string; voteId: string; channel: string }> {
     const voteId    = randomUUID();
     const channel   = await this.getElectionChannel(electionId);
     const contract  = this.getContractForChannel(channel);
@@ -178,8 +178,8 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
 
     await transaction.submit();
 
-    this.logger.log(`Vote committed — txId: ${txId}`);
-    return { txId, voteId };
+    this.logger.log(`Vote committed — channel: ${channel}, txId: ${txId}`);
+    return { txId, voteId, channel };
   }
 
   async getResultados(electionId: string): Promise<TallyAsset> {
@@ -211,11 +211,21 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }
 
   async verificarVoto(txId: string): Promise<VoteAsset> {
+    // Resolve the channel this txId was submitted on via recibos_voto
+    let channel = CHANNEL_NAME;
     try {
-      const result = await this.getContractForChannel(CHANNEL_NAME).evaluateTransaction('verificarVoto', txId);
+      const { rows } = await this.db.query<any>(
+        `SELECT canal_fabric FROM recibos_voto WHERE id_transaccion = $1`,
+        [txId],
+      );
+      if (rows[0]?.canal_fabric) channel = rows[0].canal_fabric;
+    } catch { /* DB unavailable — fall back to default channel */ }
+
+    try {
+      const result = await this.getContractForChannel(channel).evaluateTransaction('verificarVoto', txId);
       return JSON.parse(Buffer.from(result).toString('utf8')) as VoteAsset;
     } catch {
-      throw new NotFoundException(`Transacción ${txId} no encontrada en el ledger`);
+      throw new NotFoundException(`Transacción ${txId} no encontrada en el ledger (canal: ${channel})`);
     }
   }
 
@@ -233,17 +243,19 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     txId: string | null;
     status: SyncStatus;
     errorMessage: string | null;
+    canal?: string;
   }): Promise<void> {
     await this.db.query(
       `INSERT INTO recibos_voto
-         (id_usuario, id_eleccion, id_voto, id_candidato, id_transaccion, estado, mensaje_error)
-       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6::estado_sincronizacion, $7)
+         (id_usuario, id_eleccion, id_voto, id_candidato, id_transaccion, estado, mensaje_error, canal_fabric)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6::estado_sincronizacion, $7, $8)
        ON CONFLICT (id_eleccion, id_usuario)
        DO UPDATE SET
          id_transaccion = EXCLUDED.id_transaccion,
          id_candidato   = EXCLUDED.id_candidato,
          estado         = EXCLUDED.estado,
          mensaje_error  = EXCLUDED.mensaje_error,
+         canal_fabric   = EXCLUDED.canal_fabric,
          confirmado_en  = CASE WHEN EXCLUDED.estado = 'CONFIRMADO' THEN NOW() ELSE NULL END`,
       [
         data.userId,
@@ -253,6 +265,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
         data.txId,
         data.status,
         data.errorMessage,
+        data.canal ?? CHANNEL_NAME,
       ],
     );
   }

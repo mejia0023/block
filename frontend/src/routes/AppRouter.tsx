@@ -8,6 +8,7 @@ import AuditLogs from '../pages/admin/AuditLogs';
 import UsersPage from '../pages/admin/UsersPage';
 import ChannelsPage from '../pages/admin/ChannelsPage';
 import NodesPage from '../pages/admin/NodesPage';
+import CAPage from '../pages/admin/CAPage';
 import VotingPage from '../pages/voter/VotingPage';
 import AuditorDashboard from '../pages/auditor/AuditorDashboard';
 import AdminResults from '../pages/admin/AdminResults';
@@ -63,6 +64,7 @@ export default function AppRouter() {
           <Route path="resultados" element={<AdminResults />} />
           <Route path="nodos"    element={<NodesPage />} />
           <Route path="canales"  element={<ChannelsPage />} />
+          <Route path="ca"       element={<CAPage />} />
         </Route>
 
         {/* ── VOTANTE ───────────────────────────────────────────────────── */}

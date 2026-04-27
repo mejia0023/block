@@ -1,10 +1,26 @@
-import { useState, useEffect } from 'react';
-import { Plus, ChevronDown, ChevronUp, Trash2, ArrowRight, UserPlus, X, AlertCircle, Search } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, ChevronDown, ChevronUp, Trash2, ArrowRight, UserPlus, X, AlertCircle, Search, Clock, Network, Server, Radio } from 'lucide-react';
 import { useElections } from '../../hooks/useElections';
 import StatusBadge from '../../components/common/StatusBadge';
 import ConfirmModal from '../../components/common/ConfirmModal';
 import api from '../../api/axios.config';
 import type { Election, ElectionStatus, Candidate, User } from '../../types';
+
+interface FabricChannel {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+}
+
+interface FabricNode {
+  id: string;
+  nombre: string;
+  endpoint: string;
+  hostAlias: string;
+  activo: boolean;
+  prioridad: number;
+}
 
 const NEXT_STATUS: Partial<Record<ElectionStatus, ElectionStatus>> = {
   PROGRAMADA: 'ACTIVA',
@@ -26,15 +42,23 @@ const inputBase: React.CSSProperties = {
 };
 
 export default function ElectionManager() {
-  const { elections, loading, createElection, updateStatus, deleteElection, addCandidate, removeCandidate } = useElections();
+  const { elections, loading, createElection, updateStatus, deleteElection, addCandidate, removeCandidate, fetchElections } = useElections();
 
   const [users, setUsers]       = useState<User[]>([]);
-  const [channels, setChannels] = useState<{ nombre: string }[]>([]);
+  const [channels, setChannels] = useState<FabricChannel[]>([]);
+  const [nodes, setNodes]       = useState<FabricNode[]>([]);
 
   useEffect(() => {
     api.get<User[]>('/users').then(({ data }) => setUsers(data)).catch(() => {});
-    api.get<{ nombre: string }[]>('/channels').then(({ data }) => setChannels(data)).catch(() => {});
+    api.get<FabricChannel[]>('/channels').then(({ data }) => setChannels(data)).catch(() => {});
+    api.get<FabricNode[]>('/nodes').then(({ data }) => setNodes(data)).catch(() => {});
   }, []);
+
+  // Auto-refresh cada 30 s para reflejar cierres automáticos del backend
+  useEffect(() => {
+    const id = setInterval(fetchElections, 30_000);
+    return () => clearInterval(id);
+  }, [fetchElections]);
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', startDate: '', endDate: '', channelName: 'evoting' });
@@ -139,7 +163,9 @@ export default function ElectionManager() {
                 {channels.length === 0
                   ? <option value="evoting">evoting (por defecto)</option>
                   : channels.map((ch) => (
-                      <option key={ch.nombre} value={ch.nombre}>{ch.nombre}</option>
+                      <option key={ch.nombre} value={ch.nombre}>
+                        {ch.nombre}{!ch.activo ? ' (inactivo)' : ''}
+                      </option>
                     ))
                 }
               </select>
@@ -174,6 +200,8 @@ export default function ElectionManager() {
         )}
         {elections.map((election) => {
           const isExpanded = expandedId === election.id;
+          const electionChannel = channels.find((c) => c.nombre === (election.channelName ?? 'evoting'));
+          const activeNodes = nodes.filter((n) => n.activo);
           return (
             <div
               key={election.id}
@@ -184,11 +212,40 @@ export default function ElectionManager() {
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <StatusBadge status={election.status} />
+                  {/* Canal badge */}
+                  <span
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-mono shrink-0 hidden sm:flex"
+                    style={{
+                      background: electionChannel?.activo === false ? 'var(--error-bg)' : 'var(--surface-2)',
+                      color: electionChannel?.activo === false ? 'var(--error)' : 'var(--text-3)',
+                      border: '1px solid var(--border)',
+                    }}
+                    title={`Canal Fabric${electionChannel?.activo === false ? ' (inactivo)' : ''}`}
+                  >
+                    <Radio size={9} />
+                    {election.channelName ?? 'evoting'}
+                  </span>
+                  {/* Nodos activos */}
+                  <span
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0 hidden sm:flex"
+                    style={{
+                      background: activeNodes.length === 0 ? 'var(--error-bg)' : 'var(--surface-2)',
+                      color: activeNodes.length === 0 ? 'var(--error)' : 'var(--text-3)',
+                      border: '1px solid var(--border)',
+                    }}
+                    title={`${activeNodes.length} nodo(s) activo(s)`}
+                  >
+                    <Server size={9} />
+                    {activeNodes.length} nodo{activeNodes.length !== 1 ? 's' : ''}
+                  </span>
                   <div className="min-w-0">
                     <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-1)' }}>{election.title}</p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
                       {new Date(election.startDate).toLocaleString()} — {new Date(election.endDate).toLocaleString()}
                     </p>
+                    {(election.status === 'ACTIVA' || election.status === 'PROGRAMADA') && (
+                      <TimeRemaining endDate={election.endDate} startDate={election.startDate} status={election.status} />
+                    )}
                   </div>
                 </div>
 
@@ -224,6 +281,15 @@ export default function ElectionManager() {
                   </button>
                 </div>
               </div>
+
+              {/* Infra panel */}
+              {isExpanded && (
+                <InfraPanel
+                  channelName={election.channelName ?? 'evoting'}
+                  channel={electionChannel ?? null}
+                  nodes={nodes}
+                />
+              )}
 
               {/* Candidate panel */}
               {isExpanded && (
@@ -415,4 +481,150 @@ function CandidatePanel({ election, users, candidateForm, setCandidateForm, onAd
       )}
     </div>
   );
+}
+
+// ── Infraestructura Fabric ────────────────────────────────────────────────
+
+function InfraPanel({ channelName, channel, nodes }: {
+  channelName: string;
+  channel: FabricChannel | null;
+  nodes: FabricNode[];
+}) {
+  const activeNodes   = nodes.filter((n) => n.activo);
+  const inactiveNodes = nodes.filter((n) => !n.activo);
+  const channelActive = channel?.activo ?? true;
+
+  return (
+    <div
+      className="px-5 py-4 flex flex-col gap-3"
+      style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}
+    >
+      <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
+        <Network size={13} />
+        Infraestructura Fabric
+      </p>
+
+      {/* Canal */}
+      <div className="flex flex-col gap-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Canal</p>
+        <div className="flex items-center gap-2">
+          <span
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-mono font-medium"
+            style={{
+              background: channelActive ? 'var(--status-active-bg, #dcfce7)' : 'var(--error-bg)',
+              color: channelActive ? 'var(--status-active)' : 'var(--error)',
+            }}
+          >
+            <Radio size={11} />
+            {channelName}
+          </span>
+          <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+            {channelActive ? '● Activo' : '○ Inactivo'}
+            {channel?.descripcion ? ` — ${channel.descripcion}` : ''}
+          </span>
+        </div>
+      </div>
+
+      {/* Nodos */}
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+          Nodos ({activeNodes.length} activo{activeNodes.length !== 1 ? 's' : ''}{inactiveNodes.length > 0 ? `, ${inactiveNodes.length} inactivo${inactiveNodes.length !== 1 ? 's' : ''}` : ''})
+        </p>
+        {nodes.length === 0 ? (
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>Sin nodos registrados</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {[...activeNodes, ...inactiveNodes].map((node) => (
+              <div
+                key={node.id}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs"
+                style={{
+                  background: node.activo ? 'var(--surface)' : 'transparent',
+                  border: '1px solid var(--border)',
+                  opacity: node.activo ? 1 : 0.5,
+                }}
+              >
+                <Server size={12} style={{ color: node.activo ? 'var(--status-active)' : 'var(--text-3)', flexShrink: 0 }} />
+                <span className="font-semibold" style={{ color: 'var(--text-1)', minWidth: '4rem' }}>{node.nombre}</span>
+                <code className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--brand)' }}>
+                  {node.endpoint}
+                </code>
+                <span style={{ color: 'var(--text-3)' }}>{node.hostAlias}</span>
+                <span
+                  className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: node.activo ? 'var(--status-active-bg, #dcfce7)' : 'var(--surface-2)',
+                    color: node.activo ? 'var(--status-active)' : 'var(--text-3)',
+                  }}
+                >
+                  {node.activo ? 'Activo' : 'Inactivo'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Countdown ──────────────────────────────────────────────────────────────
+
+function TimeRemaining({ endDate, startDate, status }: {
+  endDate: string;
+  startDate: string;
+  status: ElectionStatus;
+}) {
+  const [now, setNow] = useState(Date.now());
+  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    ref.current = setInterval(() => setNow(Date.now()), 1000);
+    return () => { if (ref.current) clearInterval(ref.current); };
+  }, []);
+
+  if (status === 'PROGRAMADA') {
+    const msUntilStart = new Date(startDate).getTime() - now;
+    if (msUntilStart <= 0) return null;
+    return (
+      <span className="flex items-center gap-1 text-xs mt-1" style={{ color: 'var(--text-3)' }}>
+        <Clock size={11} />
+        Inicia en {formatDuration(msUntilStart)}
+      </span>
+    );
+  }
+
+  const msLeft = new Date(endDate).getTime() - now;
+
+  if (msLeft <= 0) {
+    return (
+      <span className="flex items-center gap-1 text-xs mt-1 font-semibold" style={{ color: 'var(--error)' }}>
+        <Clock size={11} />
+        Cerrando automáticamente…
+      </span>
+    );
+  }
+
+  const isUrgent   = msLeft < 60 * 60 * 1000;       // < 1 hora
+  const isWarning  = msLeft < 24 * 60 * 60 * 1000;  // < 24 horas
+  const color = isUrgent ? 'var(--error)' : isWarning ? '#f59e0b' : 'var(--status-active)';
+
+  return (
+    <span className="flex items-center gap-1 text-xs mt-1 font-medium" style={{ color }}>
+      <Clock size={11} />
+      Cierra en {formatDuration(msLeft)}
+    </span>
+  );
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const d = Math.floor(totalSeconds / 86400);
+  const h = Math.floor((totalSeconds % 86400) / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (d > 0)  return `${d}d ${h}h`;
+  if (h > 0)  return `${h}h ${m}m`;
+  if (m > 0)  return `${m}m ${s}s`;
+  return `${s}s`;
 }

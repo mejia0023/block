@@ -175,6 +175,21 @@ export class ElectionsService {
     await this.db.query('DELETE FROM elecciones WHERE id = $1', [id]);
   }
 
+  async closeExpiredElections(): Promise<number> {
+    const { rows } = await this.db.query<{ id: string }>(
+      `SELECT id FROM elecciones WHERE estado = 'ACTIVA' AND fecha_fin < NOW()`,
+    );
+    for (const { id } of rows) {
+      try {
+        await this.updateStatus(id, { status: 'CERRADA' });
+        this.logger.log(`Auto-cierre: elección ${id} cerrada por vencimiento de plazo`);
+      } catch (err) {
+        this.logger.error(`Auto-cierre fallido para ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return rows.length;
+  }
+
   // ── Candidates ───────────────────────────────────────────────────────────
 
   async createCandidate(dto: CreateCandidateDto): Promise<Candidate> {
