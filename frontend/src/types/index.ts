@@ -45,6 +45,7 @@ export interface Candidate {
   position: PositionType;
   photoUrl?: string | null;
   mission?: string | null;
+  logoFrente?: string | null;
 }
 
 export interface Election {

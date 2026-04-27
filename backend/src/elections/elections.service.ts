@@ -31,6 +31,7 @@ export interface Candidate {
   position: string;
   photoUrl: string | null;
   mission: string | null;
+  logoFrente: string | null;
   createdAt: Date;
 }
 
@@ -55,6 +56,7 @@ function mapCandidate(row: Record<string, unknown>): Candidate {
     position: (row.nombre_cargo as string) ?? '',
     photoUrl: (row.url_foto as string) ?? null,
     mission: (row.mision as string) ?? null,
+    logoFrente: (row.logo_frente as string) ?? null,
     createdAt: row.creado_en as Date,
   };
 }
@@ -199,10 +201,10 @@ export class ElectionsService {
     }
 
     const res = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO candidatos (id_eleccion, nombre_frente, nombre_candidato, nombre_cargo, url_foto, mision)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO candidatos (id_eleccion, nombre_frente, nombre_candidato, nombre_cargo, url_foto, mision, logo_frente)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [dto.electionId, dto.frontName, dto.candidateName, dto.position, dto.photoUrl ?? null, dto.mission ?? null],
+      [dto.electionId, dto.frontName, dto.candidateName, dto.position, dto.photoUrl ?? null, dto.mission ?? null, dto.logoFrente ?? null],
     );
     return mapCandidate(res.rows[0]);
   }

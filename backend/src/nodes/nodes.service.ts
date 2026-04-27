@@ -110,9 +110,12 @@ export class NodesService {
       '../../../fabric/network/scripts/add-peer-dynamic.sh',
     );
 
-    const wslScript = scriptPath.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, d) => `/mnt/${d.toLowerCase()}`);
+    const wslScript = scriptPath
+      .replace(/\\/g, '/')
+      .replace(/^([A-Za-z]):/, (_m, d) => `/mnt/${d.toLowerCase()}`);
 
-    const cmd = `wsl bash "${wslScript}" "${dto.nombre}" "${peerPort}" "${couchPort}"`;
+    // Usar bash -c para manejar correctamente rutas con espacios
+    const cmd = `wsl bash -c "bash '${wslScript}' '${dto.nombre}' '${peerPort}' '${couchPort}'"`;
 
     let stdout = '';
     let stderr = '';

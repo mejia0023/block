@@ -185,7 +185,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   async getResultados(electionId: string): Promise<TallyAsset> {
     // Obtener los conteos reales desde la base de datos (Sincronizado con Blockchain)
     const resultsRes = await this.db.query<any>(
-      `SELECT c.id, COUNT(rv.id) as count
+      `SELECT c.id, COUNT(rv.id_candidato) as count
        FROM candidatos c
        LEFT JOIN recibos_voto rv ON c.id = rv.id_candidato AND rv.estado = 'CONFIRMADO'
        WHERE c.id_eleccion = $1
@@ -198,9 +198,18 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
       results[row.id] = parseInt(row.count, 10);
     });
 
-    // Votos en blanco y nulos (simplificado para el demo)
-    results['votos_blancos'] = 0;
-    results['votos_nulos'] = 0;
+    // Contar votos blancos y nulos desde la base de datos
+    const blancosNulosRes = await this.db.query<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE tipo_voto_especial = 'votos_blancos') as blancos,
+         COUNT(*) FILTER (WHERE tipo_voto_especial = 'votos_nulos') as nulos
+       FROM recibos_voto
+       WHERE id_eleccion = $1 AND estado = 'CONFIRMADO'`,
+      [electionId]
+    );
+
+    results['votos_blancos'] = parseInt(blancosNulosRes.rows[0]?.blancos || '0', 10);
+    results['votos_nulos'] = parseInt(blancosNulosRes.rows[0]?.nulos || '0', 10);
 
     return {
       assetType: 'tally',
@@ -245,24 +254,33 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     errorMessage: string | null;
     canal?: string;
   }): Promise<void> {
+    // Handle special candidate IDs (votos_blancos, votos_nulos) - not UUIDs
+    const isSpecialCandidate = data.candidateId === 'votos_blancos' || data.candidateId === 'votos_nulos';
+    const candidateIdValue = isSpecialCandidate ? null : data.candidateId;
+    const tipoVotoEspecial = isSpecialCandidate ? data.candidateId : null;
+
+    this.logger.log(`saveSyncLog: candidateId=${data.candidateId}, isSpecial=${isSpecialCandidate}, tipoVotoEspecial=${tipoVotoEspecial}`);
+
     await this.db.query(
       `INSERT INTO recibos_voto
-         (id_usuario, id_eleccion, id_voto, id_candidato, id_transaccion, estado, mensaje_error, canal_fabric)
-       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6::estado_sincronizacion, $7, $8)
+         (id_usuario, id_eleccion, id_voto, id_candidato, id_transaccion, tipo_voto_especial, estado, mensaje_error, canal_fabric)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7::estado_sincronizacion, $8, $9)
        ON CONFLICT (id_eleccion, id_usuario)
        DO UPDATE SET
-         id_transaccion = EXCLUDED.id_transaccion,
-         id_candidato   = EXCLUDED.id_candidato,
-         estado         = EXCLUDED.estado,
-         mensaje_error  = EXCLUDED.mensaje_error,
-         canal_fabric   = EXCLUDED.canal_fabric,
-         confirmado_en  = CASE WHEN EXCLUDED.estado = 'CONFIRMADO' THEN NOW() ELSE NULL END`,
+         id_transaccion     = EXCLUDED.id_transaccion,
+         id_candidato       = EXCLUDED.id_candidato,
+         tipo_voto_especial = EXCLUDED.tipo_voto_especial,
+         estado             = EXCLUDED.estado,
+         mensaje_error      = EXCLUDED.mensaje_error,
+         canal_fabric       = EXCLUDED.canal_fabric,
+         confirmado_en      = CASE WHEN EXCLUDED.estado = 'CONFIRMADO' THEN NOW() ELSE NULL END`,
       [
         data.userId,
         data.electionId,
         data.voteId ?? randomUUID(),
-        data.candidateId ?? null,
+        candidateIdValue,
         data.txId,
+        tipoVotoEspecial,
         data.status,
         data.errorMessage,
         data.canal ?? CHANNEL_NAME,

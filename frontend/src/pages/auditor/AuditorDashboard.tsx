@@ -18,13 +18,6 @@ export default function AuditorDashboard() {
 
   const selectedElection = elections.find((e) => e.id === selectedId) ?? null;
 
-  function candidateLabel(candidateId: string): string {
-    if (candidateId === 'votos_blancos') return 'Votos en blanco';
-    if (candidateId === 'votos_nulos')   return 'Votos nulos';
-    const c = selectedElection?.candidates.find((c) => c.id === candidateId);
-    return c ? `${c.candidateName} — ${c.frontName}` : candidateId.slice(0, 8) + '…';
-  }
-
   async function fetchResults() {
     if (!selectedId) return;
     setError('');
@@ -32,7 +25,8 @@ export default function AuditorDashboard() {
     try {
       const { data } = await api.get<TallyResult>(`/fabric/results/${selectedId}`);
       setTally(data);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError('No se pudieron cargar los resultados del ledger');
       setTally(null);
     } finally {
@@ -41,9 +35,28 @@ export default function AuditorDashboard() {
   }
 
   const totalVotes = tally ? Object.values(tally.results).reduce((a, b) => a + b, 0) : 0;
-  const sortedResults = tally
-    ? Object.entries(tally.results).sort(([, a], [, b]) => b - a)
-    : [];
+  
+  // Crear lista completa incluyendo blancos y nulos
+  const allResults = tally ? [
+    ...selectedElection?.candidates.map(c => ({
+      id: c.id,
+      name: `${c.candidateName} — ${c.frontName}`,
+      count: tally.results[c.id] || 0,
+      isSpecial: false
+    })) || [],
+    {
+      id: 'votos_blancos',
+      name: 'Votos en blanco',
+      count: tally.results['votos_blancos'] || 0,
+      isSpecial: true
+    },
+    {
+      id: 'votos_nulos',
+      name: 'Votos nulos',
+      count: tally.results['votos_nulos'] || 0,
+      isSpecial: true
+    }
+  ].sort((a, b) => b.count - a.count) : [];
 
   const inputBase: React.CSSProperties = {
     background: 'var(--surface)',
@@ -145,17 +158,17 @@ export default function AuditorDashboard() {
 
           {/* Results */}
           <div className="p-5 flex flex-col gap-4">
-            {sortedResults.map(([candidateId, count], i) => {
-              const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
-              const isFirst = i === 0 && count > 0;
+            {allResults.map((result, i) => {
+              const pct = totalVotes > 0 ? Math.round((result.count / totalVotes) * 100) : 0;
+              const isFirst = i === 0 && result.count > 0;
               return (
-                <div key={candidateId} className="flex flex-col gap-1.5">
+                <div key={result.id} className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium truncate max-w-xs" style={{ color: 'var(--text-1)' }}>
-                      {candidateLabel(candidateId)}
+                      {result.name}
                     </span>
                     <span className="text-xs font-semibold ml-4 shrink-0 tabular-nums" style={{ color: isFirst ? 'var(--status-active)' : 'var(--text-2)' }}>
-                      {count} · {pct}%
+                      {result.count} · {pct}%
                     </span>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>

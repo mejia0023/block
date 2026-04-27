@@ -37,7 +37,8 @@ export class ChannelsService {
       .replace(/\\/g, '/')
       .replace(/^([A-Za-z]):/, (_m, d) => `/mnt/${d.toLowerCase()}`);
 
-    const cmd = `wsl bash "${wslScript}" "${dto.nombre}"`;
+    // Usar bash -c para manejar correctamente rutas con espacios
+    const cmd = `wsl bash -c "bash '${wslScript}' '${dto.nombre}'"`;
 
     let stdout = '';
     let stderr = '';

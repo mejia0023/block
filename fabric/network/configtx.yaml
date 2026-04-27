@@ -2,7 +2,7 @@ Organizations:
     - &OrdererOrg
         Name: OrdererOrg
         ID: OrdererMSP
-        MSPDir: crypto-material/ordererOrganizations/ficct.edu.bo/msp
+        MSPDir: /crypto/ordererOrganizations/ficct.edu.bo/msp
         Policies:
             Readers:
                 Type: Signature
@@ -17,7 +17,7 @@ Organizations:
     - &FICCTOrg
         Name: FICCTOrg
         ID: FICCTOrgMSP
-        MSPDir: crypto-material/peerOrganizations/ficct.edu.bo/msp
+        MSPDir: /crypto/peerOrganizations/ficct.edu.bo/msp
         Policies:
             Readers:
                 Type: Signature
@@ -77,8 +77,8 @@ Orderer: &OrdererDefaults
         Consenters:
             - Host: orderer.ficct.edu.bo
               Port: 7050
-              ClientTLSCert: crypto-material/ordererOrganizations/ficct.edu.bo/orderers/orderer.ficct.edu.bo/tls/server.crt
-              ServerTLSCert: crypto-material/ordererOrganizations/ficct.edu.bo/orderers/orderer.ficct.edu.bo/tls/server.crt
+              ClientTLSCert: /crypto/ordererOrganizations/ficct.edu.bo/orderers/orderer.ficct.edu.bo/tls/server.crt
+              ServerTLSCert: /crypto/ordererOrganizations/ficct.edu.bo/orderers/orderer.ficct.edu.bo/tls/server.crt
     Organizations:
     Policies:
         Readers:
