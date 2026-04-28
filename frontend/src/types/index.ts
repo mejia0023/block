@@ -33,6 +33,7 @@ export interface User {
   email: string;
   career: CareerType;
   role: CualquierRol;
+  channelNames: string[];
   hasVoted: boolean;
   isEnabled: boolean;
   createdAt: string;
@@ -40,6 +41,7 @@ export interface User {
 
 export interface Candidate {
   id: string;
+  electionId?: string;
   frontName: string;
   candidateName: string;
   position: PositionType;

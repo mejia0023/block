@@ -194,7 +194,7 @@ docker exec \
 log "Instalando chaincode en $PEER_NAME..."
 docker exec cli peer lifecycle chaincode package \
   "/tmp/${CC_NAME}_${PEER_NAME}.tar.gz" \
-  --path "/chaincode/evoting" \
+  --path "/chaincode" \
   --lang node \
   --label "${CC_NAME}_${CC_VERSION}" 2>/dev/null || true
 

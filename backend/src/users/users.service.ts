@@ -1,7 +1,9 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
@@ -22,11 +24,17 @@ export interface User {
   career: string;
   isEnabled: boolean;
   hasVoted: boolean;
+  channelNames: string[];
   createdAt: Date;
 }
 
 // Default org from seed data
 const ORG_ID = '11111111-1111-1111-1111-111111111111';
+
+function normalizeChannelNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
 
 function mapUser(row: Record<string, unknown>, hasVoted = false): User {
   const meta = (row.metadatos as Record<string, string>) ?? {};
@@ -41,23 +49,31 @@ function mapUser(row: Record<string, unknown>, hasVoted = false): User {
     career: meta.carrera ?? '',
     isEnabled: row.habilitado as boolean,
     hasVoted,
+    channelNames: normalizeChannelNames(row.canales_asignados),
     createdAt: row.creado_en as Date,
   };
 }
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnModuleInit {
   constructor(private readonly db: DatabaseService) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureUserChannelsTable();
+  }
 
   async findByIdentificador(identificador: string): Promise<User | null> {
     const res = await this.db.query<Record<string, unknown>>(
       `SELECT u.*,
+        COALESCE(array_agg(uc.canal_fabric) FILTER (WHERE uc.canal_fabric IS NOT NULL), '{}') AS canales_asignados,
         EXISTS(
           SELECT 1 FROM recibos_voto rv
           WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
         ) AS ha_votado
        FROM usuarios u
+       LEFT JOIN usuario_canales uc ON uc.id_usuario = u.id
        WHERE u.identificador = $1
+       GROUP BY u.id
        LIMIT 1`,
       [identificador],
     );
@@ -69,12 +85,15 @@ export class UsersService {
   async findById(id: string): Promise<User | null> {
     const res = await this.db.query<Record<string, unknown>>(
       `SELECT u.*,
+        COALESCE(array_agg(uc.canal_fabric) FILTER (WHERE uc.canal_fabric IS NOT NULL), '{}') AS canales_asignados,
         EXISTS(
           SELECT 1 FROM recibos_voto rv
           WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
         ) AS ha_votado
        FROM usuarios u
+       LEFT JOIN usuario_canales uc ON uc.id_usuario = u.id
        WHERE u.id = $1
+       GROUP BY u.id
        LIMIT 1`,
       [id],
     );
@@ -86,12 +105,15 @@ export class UsersService {
   async findAll(): Promise<User[]> {
     const res = await this.db.query<Record<string, unknown>>(
       `SELECT u.*,
+        COALESCE(array_agg(uc.canal_fabric) FILTER (WHERE uc.canal_fabric IS NOT NULL), '{}') AS canales_asignados,
         EXISTS(
           SELECT 1 FROM recibos_voto rv
           WHERE rv.id_usuario = u.id AND rv.estado = 'CONFIRMADO'
         ) AS ha_votado
        FROM usuarios u
+       LEFT JOIN usuario_canales uc ON uc.id_usuario = u.id
        WHERE u.id_organizacion = $1
+       GROUP BY u.id
        ORDER BY u.creado_en DESC`,
       [ORG_ID],
     );
@@ -119,7 +141,9 @@ export class UsersService {
        RETURNING *`,
       [ORG_ID, dto.identificador, dto.name, dto.email, passwordHash, dto.role, meta],
     );
-    return mapUser(res.rows[0]);
+    const user = mapUser(res.rows[0]);
+    await this.replaceUserChannels(user.id, dto.channelNames ?? []);
+    return this.findById(user.id) as Promise<User>;
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
@@ -155,14 +179,22 @@ export class UsersService {
       params.push(await bcrypt.hash(dto.password, 10));
     }
 
-    if (setClauses.length === 0) return current;
+    if (setClauses.length === 0 && dto.channelNames === undefined) return current;
 
-    params.push(id);
-    const res = await this.db.query<Record<string, unknown>>(
-      `UPDATE usuarios SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`,
-      params,
-    );
-    return mapUser(res.rows[0], current.hasVoted);
+    if (setClauses.length > 0) {
+      params.push(id);
+      await this.db.query<Record<string, unknown>>(
+        `UPDATE usuarios SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`,
+        params,
+      );
+    }
+    if (dto.channelNames !== undefined) {
+      await this.replaceUserChannels(id, dto.channelNames);
+    }
+
+    const updated = await this.findById(id);
+    if (!updated) throw new NotFoundException('Usuario no encontrado');
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
@@ -177,6 +209,18 @@ export class UsersService {
     );
     if (!userRes.rows[0]) throw new NotFoundException('Usuario no encontrado');
     if (!userRes.rows[0].habilitado) throw new UnauthorizedException('Cuenta deshabilitada');
+
+    const channelRes = await this.db.query(
+      `SELECT 1
+       FROM elecciones e
+       INNER JOIN usuario_canales uc ON uc.canal_fabric = e.canal_fabric
+       WHERE e.id = $1 AND uc.id_usuario = $2
+       LIMIT 1`,
+      [electionId, userId],
+    );
+    if (channelRes.rows.length === 0) {
+      throw new ForbiddenException('No tienes acceso al canal de esta elección');
+    }
 
     const votoRes = await this.db.query(
       `SELECT id FROM recibos_voto
@@ -209,6 +253,34 @@ export class UsersService {
          DO UPDATE SET voto_emitido = true, votado_en = NOW()`,
         [electionId, userId],
       );
+    });
+  }
+
+  private async ensureUserChannelsTable(): Promise<void> {
+    await this.db.query(`
+      CREATE TABLE IF NOT EXISTS usuario_canales (
+        id_usuario UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        canal_fabric VARCHAR(100) NOT NULL REFERENCES canales_fabric(nombre) ON DELETE CASCADE,
+        creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (id_usuario, canal_fabric)
+      )
+    `);
+  }
+
+  private async replaceUserChannels(userId: string, channelNames: string[]): Promise<void> {
+    await this.ensureUserChannelsTable();
+    const uniqueChannels = [...new Set(channelNames.filter(Boolean))];
+
+    await this.db.transaction(async (client) => {
+      await client.query('DELETE FROM usuario_canales WHERE id_usuario = $1', [userId]);
+      for (const channelName of uniqueChannels) {
+        await client.query(
+          `INSERT INTO usuario_canales (id_usuario, canal_fabric)
+           VALUES ($1, $2)
+           ON CONFLICT (id_usuario, canal_fabric) DO NOTHING`,
+          [userId, channelName],
+        );
+      }
     });
   }
 }

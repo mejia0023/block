@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -30,6 +31,25 @@ export interface TallyAsset {
   electionId: string;
   results: Record<string, number>;
   lastUpdated: string;
+}
+
+export interface VoteReceipt {
+  electionId: string;
+  txId: string;
+  status: SyncStatus;
+  channel: string | null;
+  createdAt: Date;
+  errorMessage: string | null;
+}
+
+export interface VoteVerification {
+  txId: string;
+  electionId: string | null;
+  status: SyncStatus | 'NO_ENCONTRADO';
+  counted: boolean;
+  channel: string | null;
+  source: 'FABRIC' | 'LOCAL' | 'DESCONOCIDO';
+  message: string;
 }
 
 const PEER_ENDPOINT   = process.env.FABRIC_PEER_ENDPOINT   ?? 'localhost:7051';
@@ -71,17 +91,37 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     this.grpcClient = null;
     this.contracts.clear();
 
-    // Intenta el primer peer activo de la DB; si no hay, usa las env vars
+    // Intenta el primer peer activo de la DB; si todos están inactivos, Fabric queda offline.
     let endpoint = PEER_ENDPOINT;
     let hostAlias = PEER_HOST_ALIAS;
+    let nodesConfigured = false;
     try {
       const { rows } = await this.db.query<any>(
-        `SELECT endpoint, host_alias FROM nodos_fabric
-         WHERE activo = true ORDER BY prioridad ASC, creado_en ASC LIMIT 1`,
+        `SELECT
+           COUNT(*)::int AS total,
+           (
+             SELECT endpoint
+             FROM nodos_fabric
+             WHERE activo = true
+             ORDER BY prioridad ASC, creado_en ASC
+             LIMIT 1
+           ) AS endpoint,
+           (
+             SELECT host_alias
+             FROM nodos_fabric
+             WHERE activo = true
+             ORDER BY prioridad ASC, creado_en ASC
+             LIMIT 1
+           ) AS host_alias
+         FROM nodos_fabric`,
       );
-      if (rows.length > 0) {
+      nodesConfigured = Number(rows[0]?.total ?? 0) > 0;
+      if (rows[0]?.endpoint && rows[0]?.host_alias) {
         endpoint  = rows[0].endpoint;
         hostAlias = rows[0].host_alias;
+      } else if (nodesConfigured) {
+        this.logger.warn('Fabric desconectado: no hay nodos activos configurados');
+        return;
       }
     } catch {
       // tabla aún no existe o DB offline → usa env vars
@@ -131,7 +171,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     // Prime the default channel eagerly so getContract() keeps working
     this.contracts.set(
       CHANNEL_NAME,
-      this.gateway.getNetwork(CHANNEL_NAME).getContract(CHAINCODE_NAME),
+      this.gateway.getNetwork(CHANNEL_NAME).getContract(CHAINCODE_NAME, 'FicctVoting'),
     );
   }
 
@@ -144,13 +184,13 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     if (!this.contracts.has(channelName)) {
       this.contracts.set(
         channelName,
-        this.gateway.getNetwork(channelName).getContract(CHAINCODE_NAME),
+        this.gateway.getNetwork(channelName).getContract(CHAINCODE_NAME, 'FicctVoting'),
       );
     }
     return this.contracts.get(channelName)!;
   }
 
-  private async getElectionChannel(electionId: string): Promise<string> {
+  async getElectionChannel(electionId: string): Promise<string> {
     try {
       const { rows } = await this.db.query<any>(
         `SELECT canal_fabric FROM elecciones WHERE id = $1`, [electionId],
@@ -161,11 +201,33 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async initEleccion(electionId: string): Promise<void> {
+    const channel  = await this.getElectionChannel(electionId);
+    const contract = this.getContractForChannel(channel);
+    try {
+      await contract.submitTransaction('initEleccion', electionId);
+    } catch (err) {
+      throw new Error(this.formatFabricError(err, channel));
+    }
+    this.logger.log(`Election initialized on ledger — electionId: ${electionId}`);
+  }
+
+  async createLocalVoteReceipt(electionId: string): Promise<{ txId: string; voteId: string; channel: string }> {
+    const channel = await this.getElectionChannel(electionId);
+    return {
+      txId: `LOCAL-${randomUUID()}`,
+      voteId: randomUUID(),
+      channel,
+    };
+  }
+
   async emitirVoto(
     _userId: string,
     electionId: string,
     candidateId: string,
   ): Promise<{ txId: string; voteId: string; channel: string }> {
+    await this.assertElectionCanReceiveVote(electionId, candidateId);
+
     const voteId    = randomUUID();
     const channel   = await this.getElectionChannel(electionId);
     const contract  = this.getContractForChannel(channel);
@@ -173,13 +235,78 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     const proposal    = contract.newProposal('emitirVoto', {
       arguments: [voteId, electionId, candidateId],
     });
-    const transaction = await proposal.endorse();
-    const txId        = transaction.getTransactionId();
+    let transaction;
+    try {
+      transaction = await proposal.endorse();
+    } catch (err) {
+      throw new Error(this.formatFabricError(err, channel));
+    }
+    const txId = transaction.getTransactionId();
 
-    await transaction.submit();
+    try {
+      await transaction.submit();
+    } catch (err) {
+      throw new Error(this.formatFabricError(err, channel));
+    }
 
     this.logger.log(`Vote committed — channel: ${channel}, txId: ${txId}`);
     return { txId, voteId, channel };
+  }
+
+  private formatFabricError(err: unknown, channel: string): string {
+    const base = err instanceof Error ? err.message : String(err);
+    const details = (err as { details?: unknown })?.details;
+
+    if (Array.isArray(details)) {
+      const messages = details
+        .map((detail) => {
+          if (detail && typeof detail === 'object' && 'message' in detail) {
+            return String((detail as { message: unknown }).message);
+          }
+          return String(detail);
+        })
+        .filter(Boolean);
+      if (messages.length > 0) {
+        return `Canal ${channel}: ${messages.join(' | ')}`;
+      }
+    }
+
+    return `Canal ${channel}: ${base}`;
+  }
+
+  private async assertElectionCanReceiveVote(electionId: string, candidateId: string): Promise<void> {
+    const electionRes = await this.db.query<{
+      estado: string;
+      fecha_inicio: Date;
+      fecha_fin: Date;
+    }>(
+      `SELECT estado, fecha_inicio, fecha_fin FROM elecciones WHERE id = $1`,
+      [electionId],
+    );
+
+    const election = electionRes.rows[0];
+    if (!election) throw new NotFoundException(`Elección ${electionId} no encontrada`);
+
+    const now = new Date();
+    if (election.estado !== 'ACTIVA') {
+      throw new BadRequestException(`La elección no está activa (estado: ${election.estado})`);
+    }
+    if (new Date(election.fecha_inicio) > now) {
+      throw new BadRequestException('La elección todavía no inició');
+    }
+    if (new Date(election.fecha_fin) < now) {
+      throw new BadRequestException('La elección ya terminó');
+    }
+
+    if (candidateId === 'votos_blancos' || candidateId === 'votos_nulos') return;
+
+    const candidateRes = await this.db.query<{ id: string }>(
+      `SELECT id FROM candidatos WHERE id = $1 AND id_eleccion = $2`,
+      [candidateId, electionId],
+    );
+    if (!candidateRes.rows[0]) {
+      throw new BadRequestException('El candidato no pertenece a esta elección');
+    }
   }
 
   async getResultados(electionId: string): Promise<TallyAsset> {
@@ -219,28 +346,105 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async verificarVoto(txId: string): Promise<VoteAsset> {
+  async getUserReceipts(userId: string): Promise<VoteReceipt[]> {
+    const { rows } = await this.db.query<{
+      id_eleccion: string;
+      id_transaccion: string;
+      estado: SyncStatus;
+      canal_fabric: string | null;
+      creado_en: Date;
+      mensaje_error: string | null;
+    }>(
+      `SELECT id_eleccion, id_transaccion, estado, canal_fabric, creado_en, mensaje_error
+       FROM recibos_voto
+       WHERE id_usuario = $1 AND estado = 'CONFIRMADO' AND id_transaccion IS NOT NULL
+       ORDER BY creado_en DESC`,
+      [userId],
+    );
+
+    return rows.map((row) => ({
+      electionId: row.id_eleccion,
+      txId: row.id_transaccion,
+      status: row.estado,
+      channel: row.canal_fabric,
+      createdAt: row.creado_en,
+      errorMessage: row.mensaje_error,
+    }));
+  }
+
+  async verificarVoto(txId: string): Promise<VoteVerification> {
+    const receiptRes = await this.db.query<{
+      id_eleccion: string;
+      estado: SyncStatus;
+      canal_fabric: string | null;
+      mensaje_error: string | null;
+    }>(
+      `SELECT id_eleccion, estado, canal_fabric, mensaje_error
+       FROM recibos_voto
+       WHERE id_transaccion = $1
+       LIMIT 1`,
+      [txId],
+    );
+
+    const receipt = receiptRes.rows[0];
+    if (receipt?.estado === 'CONFIRMADO' && txId.startsWith('LOCAL-')) {
+      return {
+        txId,
+        electionId: receipt.id_eleccion,
+        status: receipt.estado,
+        counted: true,
+        channel: receipt.canal_fabric,
+        source: 'LOCAL',
+        message: 'Voto contado en modo contingencia local',
+      };
+    }
+
     // Resolve the channel this txId was submitted on via recibos_voto
-    let channel = CHANNEL_NAME;
-    try {
-      const { rows } = await this.db.query<any>(
-        `SELECT canal_fabric FROM recibos_voto WHERE id_transaccion = $1`,
-        [txId],
-      );
-      if (rows[0]?.canal_fabric) channel = rows[0].canal_fabric;
-    } catch { /* DB unavailable — fall back to default channel */ }
+    const channel = receipt?.canal_fabric ?? CHANNEL_NAME;
 
     try {
       const result = await this.getContractForChannel(channel).evaluateTransaction('verificarVoto', txId);
-      return JSON.parse(Buffer.from(result).toString('utf8')) as VoteAsset;
+      const vote = JSON.parse(Buffer.from(result).toString('utf8')) as VoteAsset;
+      return {
+        txId,
+        electionId: vote.electionId,
+        status: receipt?.estado ?? 'CONFIRMADO',
+        counted: receipt?.estado === 'CONFIRMADO' || !receipt,
+        channel,
+        source: 'FABRIC',
+        message: 'Voto encontrado en Fabric',
+      };
     } catch {
-      throw new NotFoundException(`Transacción ${txId} no encontrada en el ledger (canal: ${channel})`);
+      if (receipt) {
+        return {
+          txId,
+          electionId: receipt.id_eleccion,
+          status: receipt.estado,
+          counted: receipt.estado === 'CONFIRMADO',
+          channel,
+          source: 'LOCAL',
+          message: receipt.mensaje_error ?? 'Recibo encontrado en base de datos local',
+        };
+      }
+      return {
+        txId,
+        electionId: null,
+        status: 'NO_ENCONTRADO',
+        counted: false,
+        channel,
+        source: 'DESCONOCIDO',
+        message: `Transacción ${txId} no encontrada`,
+      };
     }
   }
 
   async cerrarEleccion(electionId: string): Promise<void> {
     const channel = await this.getElectionChannel(electionId);
-    await this.getContractForChannel(channel).submitTransaction('cerrarEleccion', electionId);
+    try {
+      await this.getContractForChannel(channel).submitTransaction('cerrarEleccion', electionId);
+    } catch (err) {
+      throw new Error(this.formatFabricError(err, channel));
+    }
     this.logger.log(`Election closed on ledger — electionId: ${electionId}`);
   }
 
@@ -256,7 +460,7 @@ export class FabricService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     // Handle special candidate IDs (votos_blancos, votos_nulos) - not UUIDs
     const isSpecialCandidate = data.candidateId === 'votos_blancos' || data.candidateId === 'votos_nulos';
-    const candidateIdValue = isSpecialCandidate ? null : data.candidateId;
+    const candidateIdValue = data.status === 'CONFIRMADO' && !isSpecialCandidate ? data.candidateId : null;
     const tipoVotoEspecial = isSpecialCandidate ? data.candidateId : null;
 
     this.logger.log(`saveSyncLog: candidateId=${data.candidateId}, isSpecial=${isSpecialCandidate}, tipoVotoEspecial=${tipoVotoEspecial}`);

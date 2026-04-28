@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { FabricService } from '../fabric/fabric.service';
@@ -122,6 +123,48 @@ export class ElectionsService {
     );
   }
 
+  async findCurrentVoterElections(userId: string): Promise<Election[]> {
+    const electRes = await this.db.query<Record<string, unknown>>(
+      `SELECT e.*
+       FROM elecciones e
+       INNER JOIN usuario_canales uc ON uc.canal_fabric = e.canal_fabric
+       WHERE e.id_organizacion = $1
+         AND e.estado = 'ACTIVA'
+         AND uc.id_usuario = $2
+       ORDER BY e.creado_en DESC`,
+      [ORG_ID, userId],
+    );
+    if (electRes.rows.length === 0) return [];
+
+    const ids = electRes.rows.map((r) => r.id as string);
+    const candRes = await this.db.query<Record<string, unknown>>(
+      `SELECT * FROM candidatos WHERE id_eleccion = ANY($1::uuid[]) ORDER BY orden_boleta ASC, creado_en ASC`,
+      [ids],
+    );
+
+    const candidatesByElection = new Map<string, Candidate[]>();
+    for (const row of candRes.rows) {
+      const eid = row.id_eleccion as string;
+      if (!candidatesByElection.has(eid)) candidatesByElection.set(eid, []);
+      candidatesByElection.get(eid)!.push(mapCandidate(row));
+    }
+
+    return electRes.rows.map((row) =>
+      mapElection(row, candidatesByElection.get(row.id as string) ?? []),
+    );
+  }
+
+  private async ensureUserChannelsTable(): Promise<void> {
+    await this.db.query(`
+      CREATE TABLE IF NOT EXISTS usuario_canales (
+        id_usuario UUID NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        canal_fabric VARCHAR(100) NOT NULL REFERENCES canales_fabric(nombre) ON DELETE CASCADE,
+        creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (id_usuario, canal_fabric)
+      )
+    `);
+  }
+
   async findElectionById(id: string): Promise<Election> {
     const electRes = await this.db.query<Record<string, unknown>>(
       'SELECT * FROM elecciones WHERE id = $1',
@@ -145,6 +188,20 @@ export class ElectionsService {
         `Transición inválida: ${election.status} → ${dto.status}. ` +
           `Permitidas: ${allowed.join(', ') || 'ninguna'}`,
       );
+    }
+
+    if (dto.status === 'ACTIVA') {
+      try {
+        await this.fabricService.initEleccion(id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `initEleccion falló para ${id}; no se activará porque Fabric no escribió en CouchDB: ${message}`,
+        );
+        throw new ServiceUnavailableException(
+          `Fabric no pudo inicializar la elección en el canal ${election.channelName}: ${message}`,
+        );
+      }
     }
 
     const res = await this.db.query<Record<string, unknown>>(

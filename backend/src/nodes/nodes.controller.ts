@@ -25,6 +25,11 @@ export class NodesController {
     return this.nodesService.findAll();
   }
 
+  @Get('free-port')
+  getFreePort() {
+    return this.nodesService.getNextFreePort();
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() dto: CreateNodeDto) {

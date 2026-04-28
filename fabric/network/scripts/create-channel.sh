@@ -88,6 +88,9 @@ sleep 3
 
 # ── 3. Unir todos los peers activos al canal ────────────────────────────────
 log "Uniendo peers al canal '${CHANNEL_NAME}'..."
+JOINED_PEERS=()
+JOINED_PORTS=()
+JOINED_TLS=()
 for PEER_CTR in $(docker ps --format "{{.Names}}" | grep -E "^peer[0-9]+\.${ORG_DOMAIN}$" | sort); do
   LISTEN_ADDR=$(docker inspect "$PEER_CTR" -f '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
     | awk -F= '/^CORE_PEER_LISTENADDRESS=/ {print $2}')
@@ -95,15 +98,49 @@ for PEER_CTR in $(docker ps --format "{{.Names}}" | grep -E "^peer[0-9]+\.${ORG_
   TLS_CERT="/crypto/peerOrganizations/${ORG_DOMAIN}/peers/${PEER_CTR}/tls/ca.crt"
 
   log "  Uniendo ${PEER_CTR}:${PEER_PORT}..."
+  if docker exec \
+    -e "CORE_PEER_ADDRESS=${PEER_CTR}:${PEER_PORT}" \
+    -e "CORE_PEER_TLS_ROOTCERT_FILE=${TLS_CERT}" \
+    cli peer channel join -b "/channel-artifacts/${CHANNEL_NAME}.block"; then
+    log "  OK: ${PEER_CTR} unido"
+  else
+    log "  [WARN] ${PEER_CTR}: join falló (puede que ya esté unido). Se verificará lista de canales."
+  fi
+
+  if docker exec \
+      -e "CORE_PEER_ADDRESS=${PEER_CTR}:${PEER_PORT}" \
+      -e "CORE_PEER_TLS_ROOTCERT_FILE=${TLS_CERT}" \
+      cli peer channel list 2>/dev/null | grep -q "^${CHANNEL_NAME}$"; then
+    JOINED_PEERS+=("${PEER_CTR}")
+    JOINED_PORTS+=("${PEER_PORT}")
+    JOINED_TLS+=("${TLS_CERT}")
+  fi
+done
+
+[ ${#JOINED_PEERS[@]} -eq 0 ] && error "Ningún peer quedó unido al canal '${CHANNEL_NAME}'."
+
+# ── 4. Empaquetar e instalar chaincode en cada peer del canal ───────────────
+log "Empaquetando chaincode..."
+docker exec cli peer lifecycle chaincode package \
+  "/tmp/${CC_NAME}_${CHANNEL_NAME}.tar.gz" \
+  --path "/chaincode" \
+  --lang node \
+  --label "${CC_NAME}_${CC_VERSION}" 2>/dev/null || true
+
+for i in "${!JOINED_PEERS[@]}"; do
+  PEER_CTR="${JOINED_PEERS[$i]}"
+  PEER_PORT="${JOINED_PORTS[$i]}"
+  TLS_CERT="${JOINED_TLS[$i]}"
+
+  log "Instalando chaincode en ${PEER_CTR}:${PEER_PORT}..."
   docker exec \
     -e "CORE_PEER_ADDRESS=${PEER_CTR}:${PEER_PORT}" \
     -e "CORE_PEER_TLS_ROOTCERT_FILE=${TLS_CERT}" \
-    cli peer channel join -b "/channel-artifacts/${CHANNEL_NAME}.block" \
-    && log "  OK: ${PEER_CTR} unido" \
-    || log "  [WARN] ${PEER_CTR}: join falló (puede que ya esté unido)"
+    cli peer lifecycle chaincode install "/tmp/${CC_NAME}_${CHANNEL_NAME}.tar.gz" \
+    || log "  [WARN] ${PEER_CTR}: install falló o ya estaba instalado"
 done
 
-# ── 4. Obtener Package ID usando el primer peer activo ──────────────────────
+# ── 5. Obtener Package ID usando el primer peer activo ──────────────────────
 log "Buscando Package ID del chaincode en ${ACTIVE_PEER}..."
 PACKAGE_ID=$(docker exec \
   -e "CORE_PEER_ADDRESS=${ACTIVE_PEER}:${ACTIVE_PEER_PORT}" \
@@ -115,7 +152,7 @@ PACKAGE_ID=$(docker exec \
 [ -z "$PACKAGE_ID" ] && error "Chaincode '${CC_NAME}' no instalado en ${ACTIVE_PEER}. Instálalo primero."
 log "Package ID: ${PACKAGE_ID}"
 
-# ── 5. Aprobar chaincode para la org en el nuevo canal ──────────────────────
+# ── 6. Aprobar chaincode para la org en el nuevo canal ──────────────────────
 log "Aprobando chaincode en canal '${CHANNEL_NAME}'..."
 docker exec \
   -e "CORE_PEER_ADDRESS=${ACTIVE_PEER}:${ACTIVE_PEER_PORT}" \
@@ -131,8 +168,13 @@ docker exec \
 
 sleep 3
 
-# ── 6. Commit chaincode en el nuevo canal ───────────────────────────────────
+# ── 7. Commit chaincode en el nuevo canal ───────────────────────────────────
 log "Confirmando chaincode en canal '${CHANNEL_NAME}'..."
+PEER_ARGS=()
+for i in "${!JOINED_PEERS[@]}"; do
+  PEER_ARGS+=(--peerAddresses "${JOINED_PEERS[$i]}:${JOINED_PORTS[$i]}" --tlsRootCertFiles "${JOINED_TLS[$i]}")
+done
+
 docker exec \
   -e "CORE_PEER_ADDRESS=${ACTIVE_PEER}:${ACTIVE_PEER_PORT}" \
   -e "CORE_PEER_TLS_ROOTCERT_FILE=${ACTIVE_PEER_TLS}" \
@@ -143,8 +185,15 @@ docker exec \
   --version "${CC_VERSION}" \
   --sequence "${CC_SEQUENCE}" \
   --tls --cafile "${ORDERER_CA}" \
-  --peerAddresses "${ACTIVE_PEER}:${ACTIVE_PEER_PORT}" \
-  --tlsRootCertFiles "${ACTIVE_PEER_TLS}"
+  "${PEER_ARGS[@]}"
+
+log "Verificando chaincode committed..."
+docker exec \
+  -e "CORE_PEER_ADDRESS=${ACTIVE_PEER}:${ACTIVE_PEER_PORT}" \
+  -e "CORE_PEER_TLS_ROOTCERT_FILE=${ACTIVE_PEER_TLS}" \
+  cli peer lifecycle chaincode querycommitted \
+  --channelID "${CHANNEL_NAME}" \
+  --name "${CC_NAME}"
 
 log "¡Canal '${CHANNEL_NAME}' creado con chaincode listo!"
 

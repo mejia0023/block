@@ -202,7 +202,7 @@ services:
       - /var/run/docker.sock:/host/var/run/docker.sock
       - ./crypto-material:/crypto
       - ./channel-artifacts:/channel-artifacts
-      - ../chaincode:/chaincode
+      - ../../chaincode:/chaincode
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
     command: /bin/bash
     depends_on:

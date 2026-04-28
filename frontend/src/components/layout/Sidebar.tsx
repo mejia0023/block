@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Vote, Users, ShieldCheck, BarChart2,
-  BarChart, Link2, Server, Layers, ChevronRight, Lock,
+  BarChart, Server, Layers, ChevronRight, Lock,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 
@@ -23,7 +23,7 @@ const voterLinks = [
 
 const auditorLinks = [
   { to: '/auditor/resultados', label: 'Resultados',  Icon: BarChart },
-  { to: '/auditor/blockchain', label: 'Blockchain',  Icon: Link2 },
+  { to: '/auditor/validar',    label: 'Validar voto', Icon: ShieldCheck },
 ];
 
 const rolMeta: Record<string, { label: string; color: string; bg: string; dot: string }> = {

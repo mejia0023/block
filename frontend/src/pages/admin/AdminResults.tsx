@@ -46,8 +46,19 @@ export default function AdminResults() {
     </div>
   );
 
-  // Filtrar solo elecciones no borrador
-  const displayElections = elections.filter(e => e.status !== 'BORRADOR');
+  const statusOrder: Record<string, number> = {
+    ACTIVA: 0,
+    PROGRAMADA: 1,
+    CERRADA: 2,
+    ESCRUTADA: 3,
+  };
+  const displayElections = elections
+    .filter(e => e.status !== 'BORRADOR')
+    .sort((a, b) => {
+      const statusDiff = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+      if (statusDiff !== 0) return statusDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
     <div className="flex flex-col gap-8 animate-fade-in max-w-7xl mx-auto pb-32">
@@ -82,6 +93,7 @@ export default function AdminResults() {
           {displayElections.map(election => {
             const currentTally = tallies[election.id] || {};
             const totalVotos = Object.values(currentTally).reduce((a: any, b: any) => a + b, 0) as number;
+            const isFinal = election.status === 'CERRADA' || election.status === 'ESCRUTADA';
 
             // Crear lista completa incluyendo blancos y nulos
             const allResults = [
@@ -123,7 +135,13 @@ export default function AdminResults() {
             return (
               <div key={election.id} className="flex flex-col gap-6">
                 {/* Election Header Card */}
-                <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-8 rounded-[2.5rem] shadow-xl overflow-hidden">
+                <div className={`text-white p-8 rounded-[2.5rem] shadow-xl overflow-hidden ${
+                  election.status === 'ACTIVA'
+                    ? 'bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-800'
+                    : isFinal
+                      ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-zinc-800'
+                      : 'bg-gradient-to-br from-slate-900 to-slate-800'
+                }`}>
                   <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                     <div className="relative z-10">
                       <div className="flex items-center gap-3 mb-3">
@@ -133,7 +151,7 @@ export default function AdminResults() {
                           'bg-slate-500'
                         }`} />
                         <span className="text-[9px] font-black uppercase tracking-widest text-indigo-300">
-                          {election.status.replace('_', ' ')}
+                          {isFinal ? 'RESULTADO FINAL' : election.status.replace('_', ' ')}
                         </span>
                       </div>
                       <h3 className="text-2xl md:text-3xl font-black tracking-tighter uppercase italic leading-none">
@@ -141,6 +159,11 @@ export default function AdminResults() {
                       </h3>
                       {election.description && (
                         <p className="text-sm text-slate-400 mt-2 max-w-2xl">{election.description}</p>
+                      )}
+                      {isFinal && (
+                        <p className="text-[10px] text-emerald-300 mt-3 font-black uppercase tracking-[0.25em]">
+                          Escrutinio consolidado con {totalVotos} voto{totalVotos !== 1 ? 's' : ''}
+                        </p>
                       )}
                     </div>
                   </div>

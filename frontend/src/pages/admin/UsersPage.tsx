@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, UserPlus, Pencil, Trash2, AlertCircle, X } from 'lucide-react';
+import { Search, UserPlus, Pencil, Trash2, AlertCircle, X, Layers } from 'lucide-react';
 import api from '../../api/axios.config';
 import type { CareerType, RoleType, User } from '../../types';
 
@@ -15,11 +15,36 @@ const CAREER_LABELS: Record<CareerType, string> = {
   SISTEMAS: 'Sistemas', INFORMATICA: 'Informática', REDES: 'Redes',
 };
 
-const EMPTY_FORM = { identificador: '', name: '', email: '', password: '', career: 'SISTEMAS' as CareerType, role: 'VOTANTE' as RoleType };
+const EMPTY_FORM = {
+  identificador: '',
+  name: '',
+  email: '',
+  password: '',
+  career: 'SISTEMAS' as CareerType,
+  role: 'VOTANTE' as RoleType,
+  channelNames: [] as string[],
+};
 type FormMode = { type: 'create' } | { type: 'edit'; user: User };
+type UserFormPayload = {
+  identificador?: string;
+  name: string;
+  email: string;
+  password?: string;
+  career?: CareerType;
+  role: RoleType;
+  channelNames: string[];
+};
+
+interface FabricChannel {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [channels, setChannels] = useState<FabricChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<FormMode | null>(null);
@@ -34,8 +59,12 @@ export default function UsersPage() {
   async function load() {
     setLoading(true);
     try {
-      const { data } = await api.get<User[]>('/users');
-      setUsers(data);
+      const [{ data: userData }, { data: channelData }] = await Promise.all([
+        api.get<User[]>('/users'),
+        api.get<FabricChannel[]>('/channels'),
+      ]);
+      setUsers(userData);
+      setChannels(channelData.filter((channel) => channel.activo));
     } catch {
       setError('Error al cargar usuarios');
     } finally {
@@ -43,15 +72,20 @@ export default function UsersPage() {
     }
   }
 
-  function openCreate() { setForm(EMPTY_FORM); setFormError(''); setMode({ type: 'create' }); }
+  function openCreate() {
+    setForm(EMPTY_FORM);
+    setFormError('');
+    setMode({ type: 'create' });
+  }
   function openEdit(user: User) {
     setForm({ 
       identificador: user.ru || '', 
       name: user.name, 
       email: user.email, 
       password: '', 
-      career: user.career, 
-      role: user.role 
+      career: (user.career || 'SISTEMAS') as CareerType,
+      role: user.role,
+      channelNames: user.channelNames ?? [],
     });
     setFormError(''); setMode({ type: 'edit', user });
   }
@@ -60,11 +94,20 @@ export default function UsersPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setFormError(''); setSaving(true);
     try {
+      const channelNames = form.channelNames;
+      const payload: UserFormPayload = {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        role: form.role,
+        channelNames,
+      };
+      if (form.role === 'VOTANTE') payload.career = form.career;
+      if (form.password) payload.password = form.password;
+
       if (mode?.type === 'create') {
-        await api.post('/users', form);
+        payload.identificador = form.identificador.trim();
+        await api.post('/users', payload);
       } else if (mode?.type === 'edit') {
-        const payload: any = { ...form };
-        if (!payload.password) delete payload.password;
         await api.patch(`/users/${mode.user.id}`, payload);
       }
       await load(); closeForm();
@@ -85,6 +128,14 @@ export default function UsersPage() {
       const { data } = await api.patch<User>(`/users/${user.id}`, { isEnabled: !user.isEnabled });
       setUsers((prev) => prev.map((u) => (u.id === data.id ? data : u)));
     } catch { alert('Error al cambiar estado'); }
+  }
+
+  function toggleChannel(channelName: string) {
+    const current = form.channelNames;
+    const next = current.includes(channelName)
+      ? current.filter((item) => item !== channelName)
+      : [...current, channelName];
+    setForm({ ...form, channelNames: next });
   }
 
   const filtered = users.filter((u) => {
@@ -153,7 +204,7 @@ export default function UsersPage() {
           <table className="w-full border-collapse text-sm min-w-[900px]">
             <thead>
               <tr className="bg-slate-50">
-                {['Registro', 'Nombre', 'Email', 'Carrera', 'Rol', 'Votó', 'Estado', 'Acciones'].map((h) => (
+                {['Registro', 'Nombre', 'Email', 'Carrera', 'Rol', 'Canales', 'Votó', 'Estado', 'Acciones'].map((h) => (
                   <th
                     key={h}
                     className="text-left px-5 py-3 text-xs font-bold uppercase tracking-widest text-slate-500 border-b border-slate-200 whitespace-nowrap"
@@ -166,7 +217,7 @@ export default function UsersPage() {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center px-5 py-10 text-sm text-slate-500">
+                  <td colSpan={9} className="text-center px-5 py-10 text-sm text-slate-500">
                     Sin resultados
                   </td>
                 </tr>
@@ -198,6 +249,15 @@ export default function UsersPage() {
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold ${roleStyle.bg} ${roleStyle.color}`}>
                         {ROLE_LABELS[user.role]}
                       </span>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-slate-600">
+                      {user.channelNames?.length
+                        ? user.channelNames.map((channel) => (
+                          <span key={channel} className="inline-flex mr-1 mb-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">
+                            {channel}
+                          </span>
+                        ))
+                        : <span className="text-slate-400">Sin canal</span>}
                     </td>
                     <td className="px-5 py-3 text-xs text-emerald-600">
                       {user.hasVoted ? '✓ Sí' : '—'}
@@ -241,17 +301,17 @@ export default function UsersPage() {
       {/* Modal */}
       {mode && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4 sm:p-6 animate-fade-in bg-slate-900/60 backdrop-blur-sm"
+          className="fixed inset-0 flex items-start justify-center z-50 p-3 sm:p-4 animate-fade-in bg-slate-900/60 backdrop-blur-sm overflow-y-auto"
           onClick={closeForm}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="w-full max-w-xl bg-white rounded-3xl overflow-hidden shadow-2xl animate-scale-in flex flex-col max-h-[min(90vh,700px)]"
+            className="w-full max-w-xl mt-2 sm:mt-4 bg-white rounded-2xl overflow-hidden shadow-2xl animate-scale-in flex flex-col max-h-[calc(100vh-2rem)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="px-6 sm:px-8 py-6 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-5 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
                   {mode.type === 'create' ? 'Registrar Nuevo Usuario' : 'Editar Perfil de Usuario'}
@@ -270,7 +330,7 @@ export default function UsersPage() {
             </div>
 
             {/* Modal Body */}
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col gap-6">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-5">
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {/* Identificador / Registro */}
@@ -339,6 +399,44 @@ export default function UsersPage() {
                 />
               </div>
 
+              {form.role === 'VOTANTE' && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <Layers size={14} className="text-indigo-500" />
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                      Canales electorales
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {channels.length === 0 ? (
+                      <div className="col-span-full rounded-xl px-4 py-3 text-xs bg-amber-50 border border-amber-200 text-amber-700">
+                        No hay canales activos para asignar.
+                      </div>
+                    ) : channels.map((channel) => {
+                      const selected = form.channelNames.includes(channel.nombre);
+                      return (
+                        <button
+                          key={channel.id}
+                          type="button"
+                          onClick={() => toggleChannel(channel.nombre)}
+                          className={`text-left rounded-xl px-4 py-3 border transition-all ${
+                            selected
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <div className="text-xs font-bold font-mono">{channel.nombre}</div>
+                          <div className="text-[11px] opacity-70 truncate">{channel.descripcion ?? 'Sin descripción'}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    El votante solo verá elecciones activas de los canales marcados.
+                  </p>
+                </div>
+              )}
+
               {formError && (
                 <div className="flex items-start gap-3 rounded-2xl px-4 py-3 text-xs bg-red-50 border border-red-200 text-red-700">
                   <AlertCircle size={14} className="shrink-0 mt-0.5" />
@@ -348,7 +446,7 @@ export default function UsersPage() {
             </form>
 
             {/* Modal Footer */}
-            <div className="px-6 sm:px-8 py-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+            <div className="px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={closeForm}

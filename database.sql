@@ -1,10 +1,10 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
---  OFFICIAL_DB.SQL — Versión limpia (sin DO blocks ni transacciones)
---  Sistema de Votación Electrónica con Blockchain
+--  DATABASE.SQL — Esquema completo del Sistema de Votación Electrónica
 --  PostgreSQL 15+
 --
 --  Estrategia: borra todo si existe, luego crea desde cero.
---  Uso: psql -h localhost -U postgres -d evoting_db -f official_db.sql
+--  Uso: psql -U postgres -d evoting_db -f database.sql
+--  Después ejecutar: npm run seed  (poblar usuarios y elecciones de prueba)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- ── Extensiones ──────────────────────────────────────────────────────────────
@@ -14,12 +14,15 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ── DROP previo (orden inverso por dependencias FK) ──────────────────────────
 
+DROP TABLE IF EXISTS usuario_canales       CASCADE;
 DROP TABLE IF EXISTS observadores_eleccion CASCADE;
 DROP TABLE IF EXISTS eventos_auditoria     CASCADE;
 DROP TABLE IF EXISTS recibos_voto          CASCADE;
 DROP TABLE IF EXISTS padron_electoral      CASCADE;
 DROP TABLE IF EXISTS candidatos            CASCADE;
 DROP TABLE IF EXISTS elecciones            CASCADE;
+DROP TABLE IF EXISTS nodos_fabric          CASCADE;
+DROP TABLE IF EXISTS canales_fabric        CASCADE;
 DROP TABLE IF EXISTS usuarios              CASCADE;
 DROP TABLE IF EXISTS organizaciones        CASCADE;
 
@@ -30,7 +33,6 @@ DROP TYPE IF EXISTS rol_usuario;
 
 -- ── ENUMs ────────────────────────────────────────────────────────────────────
 
--- ROLES DEL SISTEMA: aquí están definidos VOTANTE, ADMINISTRADOR, AUDITOR
 CREATE TYPE rol_usuario AS ENUM ('VOTANTE', 'ADMINISTRADOR', 'AUDITOR');
 
 CREATE TYPE estado_eleccion AS ENUM (
@@ -78,7 +80,6 @@ CREATE TABLE organizaciones (
 );
 
 -- ── TABLA 2: USUARIOS ────────────────────────────────────────────────────────
--- AQUÍ ESTÁ EL ROL: columna `rol` (VOTANTE / ADMINISTRADOR / AUDITOR)
 
 CREATE TABLE usuarios (
   id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -87,7 +88,7 @@ CREATE TABLE usuarios (
   nombre           VARCHAR(255) NOT NULL,
   email            VARCHAR(255) NOT NULL,
   hash_contrasena  VARCHAR(255),
-  rol              rol_usuario  NOT NULL DEFAULT 'VOTANTE',  -- ← AQUÍ
+  rol              rol_usuario  NOT NULL DEFAULT 'VOTANTE',
   metadatos        JSONB        NOT NULL DEFAULT '{}',
   habilitado       BOOLEAN      NOT NULL DEFAULT TRUE,
   creado_en        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -124,6 +125,7 @@ CREATE TABLE candidatos (
   nombre_candidato VARCHAR(255) NOT NULL,
   nombre_cargo     VARCHAR(100),
   url_foto         TEXT,
+  logo_frente      TEXT,
   cid_ipfs         VARCHAR(255),
   mision           TEXT,
   url_propuesta    TEXT,
@@ -149,7 +151,7 @@ CREATE TABLE padron_electoral (
 
 CREATE TABLE recibos_voto (
   id               UUID                   PRIMARY KEY DEFAULT uuid_generate_v4(),
-  id_usuario       UUID                   NOT NULL REFERENCES usuarios(id)  ON DELETE RESTRICT,
+  id_usuario       UUID                   NOT NULL REFERENCES usuarios(id)   ON DELETE RESTRICT,
   id_eleccion      UUID                   NOT NULL REFERENCES elecciones(id) ON DELETE RESTRICT,
   id_voto          UUID                   NOT NULL,
   id_transaccion   VARCHAR(255)           UNIQUE,
@@ -186,17 +188,49 @@ CREATE TABLE observadores_eleccion (
   UNIQUE(id_eleccion, id_usuario)
 );
 
+-- ── TABLA 9: NODOS_FABRIC ────────────────────────────────────────────────────
+
+CREATE TABLE nodos_fabric (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre      VARCHAR(100) NOT NULL UNIQUE,
+  endpoint    VARCHAR(255) NOT NULL,
+  host_alias  VARCHAR(255) NOT NULL,
+  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
+  prioridad   SMALLINT     NOT NULL DEFAULT 0,
+  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- ── TABLA 10: CANALES_FABRIC ─────────────────────────────────────────────────
+
+CREATE TABLE canales_fabric (
+  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre      VARCHAR(100) UNIQUE NOT NULL,
+  descripcion TEXT,
+  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
+  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- ── TABLA 11: USUARIO_CANALES ────────────────────────────────────────────────
+
+CREATE TABLE usuario_canales (
+  id_usuario   UUID         NOT NULL REFERENCES usuarios(id)      ON DELETE CASCADE,
+  canal_fabric VARCHAR(100) NOT NULL REFERENCES canales_fabric(nombre) ON DELETE CASCADE,
+  creado_en    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id_usuario, canal_fabric)
+);
+
 -- ── ÍNDICES ──────────────────────────────────────────────────────────────────
 
-CREATE INDEX idx_usuarios_org           ON usuarios(id_organizacion);
-CREATE INDEX idx_usuarios_rol           ON usuarios(rol);
-CREATE INDEX idx_usuarios_identificador ON usuarios(id_organizacion, identificador);
+CREATE INDEX idx_usuarios_org            ON usuarios(id_organizacion);
+CREATE INDEX idx_usuarios_rol            ON usuarios(rol);
+CREATE INDEX idx_usuarios_identificador  ON usuarios(id_organizacion, identificador);
 CREATE INDEX idx_usuarios_deshabilitados ON usuarios(id_organizacion) WHERE habilitado = FALSE;
 
 CREATE INDEX idx_elecciones_org     ON elecciones(id_organizacion);
 CREATE INDEX idx_elecciones_estado  ON elecciones(estado);
 CREATE INDEX idx_elecciones_activas ON elecciones(fecha_inicio, fecha_fin) WHERE estado = 'ACTIVA';
 CREATE INDEX idx_elecciones_fabric  ON elecciones(id_eleccion_fabric);
+CREATE INDEX idx_elecciones_canal   ON elecciones(canal_fabric);
 
 CREATE INDEX idx_candidatos_eleccion ON candidatos(id_eleccion);
 CREATE INDEX idx_candidatos_orden    ON candidatos(id_eleccion, orden_boleta);
@@ -211,61 +245,31 @@ CREATE INDEX idx_recibos_estado   ON recibos_voto(estado);
 CREATE INDEX idx_recibos_tx       ON recibos_voto(id_transaccion) WHERE id_transaccion IS NOT NULL;
 CREATE INDEX idx_recibos_bloque   ON recibos_voto(numero_bloque)  WHERE numero_bloque  IS NOT NULL;
 
-CREATE INDEX idx_auditoria_org     ON eventos_auditoria(id_organizacion, creado_en DESC);
-CREATE INDEX idx_auditoria_usuario ON eventos_auditoria(id_usuario);
-CREATE INDEX idx_auditoria_accion  ON eventos_auditoria(accion);
-CREATE INDEX idx_auditoria_fecha   ON eventos_auditoria(creado_en DESC);
+CREATE INDEX idx_auditoria_org      ON eventos_auditoria(id_organizacion, creado_en DESC);
+CREATE INDEX idx_auditoria_usuario  ON eventos_auditoria(id_usuario);
+CREATE INDEX idx_auditoria_accion   ON eventos_auditoria(accion);
+CREATE INDEX idx_auditoria_fecha    ON eventos_auditoria(creado_en DESC);
 CREATE INDEX idx_auditoria_seguridad ON eventos_auditoria(id_organizacion, creado_en DESC)
   WHERE accion IN ('INICIO_SESION_FALLIDO', 'INTENTO_VOTO_DOBLE', 'VOTO_FALLIDO');
 
--- ── TABLA 9: NODOS_FABRIC ─────────────────────────────────────────────────────
+CREATE INDEX idx_usuario_canales_usuario ON usuario_canales(id_usuario);
+CREATE INDEX idx_usuario_canales_canal   ON usuario_canales(canal_fabric);
 
-DROP TABLE IF EXISTS nodos_fabric CASCADE;
+-- ── DATOS INICIALES ───────────────────────────────────────────────────────────
 
-CREATE TABLE nodos_fabric (
-  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-  nombre      VARCHAR(100) NOT NULL,
-  endpoint    VARCHAR(255) NOT NULL,
-  host_alias  VARCHAR(255) NOT NULL,
-  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
-  prioridad   SMALLINT     NOT NULL DEFAULT 0,
-  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
+-- Organización base (UUID fijo requerido por el backend)
+INSERT INTO organizaciones (id, nombre, slug) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'UAGRM', 'uagrm');
 
--- Peers por defecto de la red FICCT
-INSERT INTO nodos_fabric (nombre, endpoint, host_alias, prioridad) VALUES
-  ('peer0', 'localhost:7051', 'peer0.ficct.edu.bo', 0),
-  ('peer1', 'localhost:8051', 'peer1.ficct.edu.bo', 1);
+-- Usuario administrador inicial (contraseña: password123)
+INSERT INTO usuarios (id_organizacion, identificador, nombre, email, hash_contrasena, rol) VALUES
+  ('11111111-1111-1111-1111-111111111111',
+   'admin',
+   'Administrador',
+   'admin@uagrm.edu.bo',
+   '$2b$10$Bur52zgv0wHi0wpiVrc9U.IE8PAOgOg38EyNDkqX1ouH3ztGg0LXi',
+   'ADMINISTRADOR');
 
--- ── TABLA: CANALES_FABRIC ─────────────────────────────────────────────────
-
-DROP TABLE IF EXISTS canales_fabric CASCADE;
-
-CREATE TABLE canales_fabric (
-  id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-  nombre      VARCHAR(100) UNIQUE NOT NULL,
-  descripcion TEXT,
-  activo      BOOLEAN      NOT NULL DEFAULT TRUE,
-  creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
+-- Canal Fabric base (debe coincidir con el canal que crea setup.sh)
 INSERT INTO canales_fabric (nombre, descripcion) VALUES
   ('evoting', 'Canal principal de votación FICCT');
-
-
-  DROP TABLE IF EXISTS canales_fabric CASCADE;                                                                                                      CREATE TABLE canales_fabric (
-    id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),                                                                              
-    nombre      VARCHAR(100) UNIQUE NOT NULL,
-    descripcion TEXT,
-    activo      BOOLEAN      NOT NULL DEFAULT TRUE,
-    creado_en   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-  );
-  INSERT INTO canales_fabric (nombre, descripcion) VALUES
-    ('evoting', 'Canal principal de votación FICCT');
-
--- DATOS INICIALES
-INSERT INTO organizaciones (id, nombre, slug) VALUES ('00000000-0000-0000-0000-000000000001', 'Facultad de Ingenier�a', 'ficct');
-INSERT INTO usuarios (id_organizacion, identificador, nombre, email, hash_contrasena, rol) VALUES ('00000000-0000-0000-0000-000000000001', 'admin', 'Admin FICCT', 'admin@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'ADMINISTRADOR'), ('00000000-0000-0000-0000-000000000001', 'estudiante1', 'Juan Perez', 'juan@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'VOTANTE'), ('00000000-0000-0000-0000-000000000001', 'auditor', 'Auditor Externo', 'auditor@ficct.edu.bo', '.C9Jp9kQYyQYyQY.G9v4v8v8v8v8v8v8v8v8v8v8v8v8v8v', 'AUDITOR');
-INSERT INTO elecciones (id, id_organizacion, titulo, descripcion, nombre_cargo, fecha_inicio, fecha_fin, estado) VALUES ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-000000000001', 'Elecciones de Centro de Estudiantes 2026', 'Votaci�n anual para representantes estudiantiles', 'Delegado ICU', NOW() - INTERVAL '1 hour', NOW() + INTERVAL '24 hours', 'ACTIVA');
-INSERT INTO candidatos (id_eleccion, nombre_frente, nombre_candidato, nombre_cargo, orden_boleta) VALUES ('00000000-0000-0000-0000-00000000000a', 'Frente Estudiantil Unido', 'Carlos Gomez', 'Delegado Principal', 1), ('00000000-0000-0000-0000-00000000000a', 'Innovaci�n FICCT', 'Maria Lopez', 'Delegado Principal', 2);
-INSERT INTO padron_electoral (id_eleccion, id_usuario) VALUES ('00000000-0000-0000-0000-00000000000a', (SELECT id FROM usuarios WHERE identificador = 'estudiante1'));

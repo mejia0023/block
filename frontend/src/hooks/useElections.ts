@@ -4,7 +4,7 @@ import type { Election, ElectionStatus, Candidate } from '../types';
 
 export function useElections() {
   const [elections, setElections] = useState<Election[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchElections = useCallback(async () => {

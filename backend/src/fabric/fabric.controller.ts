@@ -1,7 +1,9 @@
 import {
+  BadGatewayException,
   Body,
   Controller,
   Get,
+  HttpException,
   HttpCode,
   HttpStatus,
   Param,
@@ -48,6 +50,12 @@ export class FabricController {
     try {
       ({ txId, voteId, channel } = await this.fabricService.emitirVoto(userId, dto.electionId, dto.candidateId));
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof HttpException && err.getStatus() < HttpStatus.INTERNAL_SERVER_ERROR) {
+        throw err;
+      }
+
+      channel = await this.fabricService.getElectionChannel(dto.electionId);
       await this.fabricService.saveSyncLog({
         userId,
         electionId: dto.electionId,
@@ -55,9 +63,10 @@ export class FabricController {
         voteId: null,
         txId: null,
         status: 'FALLIDO',
-        errorMessage: err instanceof Error ? err.message : String(err),
+        errorMessage,
+        canal: channel,
       });
-      throw err;
+      throw new BadGatewayException(`Fabric no pudo registrar el voto en CouchDB/ledger: ${errorMessage}`);
     }
 
     await this.usersService.markAsVoted(userId, dto.electionId);
@@ -81,8 +90,28 @@ export class FabricController {
     return this.fabricService.getResultados(electionId);
   }
 
+  @Get('my-receipts')
+  @UseGuards(JwtAuthGuard)
+  getMyReceipts(@Req() req: Request & { user: { userId: string } }) {
+    return this.fabricService.getUserReceipts(req.user.userId);
+  }
+
   @Get('verify/:txId')
   verifyVote(@Param('txId') txId: string) {
-    return this.fabricService.verificarVoto(txId);
+    return this.fabricService.verificarVoto(this.normalizeTxId(txId));
+  }
+
+  private normalizeTxId(value: string): string {
+    const decoded = decodeURIComponent(value).trim();
+    const localMatches = decoded.match(/LOCAL-[0-9a-fA-F-]{36}/g);
+    if (localMatches?.length) return localMatches[localMatches.length - 1];
+
+    const fabricTxMatches = decoded.match(/\b[0-9a-fA-F]{64}\b/g);
+    if (fabricTxMatches?.length) return fabricTxMatches[fabricTxMatches.length - 1];
+
+    return decoded
+      .replace(/^txId\s*[:=]\s*/i, '')
+      .replace(/^transactionId\s*[:=]\s*/i, '')
+      .trim();
   }
 }

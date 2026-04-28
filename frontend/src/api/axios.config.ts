@@ -15,9 +15,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (error) => {
+    // 401 = token inválido/expirado → cerrar sesión
+    // 403 = sin permiso para esa operación → NO cerrar sesión, el componente maneja el error
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
-      // No redirigir si estamos en la vista pública
       if (!window.location.pathname.startsWith('/elecciones')) {
         window.location.href = '/login';
       }
