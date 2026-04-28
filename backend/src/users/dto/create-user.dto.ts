@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString, Length, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsEnum, IsOptional, IsString, Length, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @IsString() @Length(1, 100)
@@ -18,4 +18,7 @@ export class CreateUserDto {
 
   @IsEnum(['VOTANTE', 'ADMINISTRADOR', 'AUDITOR'])
   role: 'VOTANTE' | 'ADMINISTRADOR' | 'AUDITOR';
+
+  @IsOptional() @IsArray() @IsString({ each: true })
+  channelNames?: string[];
 }

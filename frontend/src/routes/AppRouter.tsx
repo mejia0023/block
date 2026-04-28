@@ -11,6 +11,7 @@ import NodesPage from '../pages/admin/NodesPage';
 import CAPage from '../pages/admin/CAPage';
 import VotingPage from '../pages/voter/VotingPage';
 import AuditorDashboard from '../pages/auditor/AuditorDashboard';
+import VoteValidator from '../pages/auditor/VoteValidator';
 import AdminResults from '../pages/admin/AdminResults';
 import AdminLayout from '../components/layout/AdminLayout';
 import VoterLayout from '../components/layout/VoterLayout';
@@ -78,6 +79,7 @@ export default function AppRouter() {
         >
           <Route index element={<Navigate to="/votante/votar" replace />} />
           <Route path="votar"      element={<VotingPage />} />
+          <Route path="resultados" element={<LiveResults />} />
         </Route>
 
         {/* ── AUDITOR ───────────────────────────────────────────────────── */}
@@ -91,6 +93,7 @@ export default function AppRouter() {
         >
           <Route index element={<Navigate to="/auditor/resultados" replace />} />
           <Route path="resultados" element={<AuditorDashboard />} />
+          <Route path="validar" element={<VoteValidator />} />
           <Route path="blockchain" element={<AuditLogs />} />
         </Route>
 

@@ -66,8 +66,34 @@ export default function ElectionManager() {
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [candidateForm, setCandidateForm] = useState({
-    frontName: '', candidateName: '', position: '' as Candidate['position'], mission: '', photoUrl: '',
+    frontName: '', candidateName: '', position: '' as Candidate['position'], mission: '', photoUrl: '', logoFrente: '', logoFile: null as File | null,
   });
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+
+  // Limpiar URL del objeto cuando cambia logoFile y convertir a data URL
+  useEffect(() => {
+    if (candidateForm.logoFile) {
+      // Crear URL para preview
+      const objectUrl = URL.createObjectURL(candidateForm.logoFile);
+      setPreviewUrl(objectUrl);
+      
+      // Convertir a data URL (base64) para enviar al backend
+      const reader = new FileReader();
+      reader.readAsDataURL(candidateForm.logoFile);
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setLogoDataUrl(dataUrl);
+      };
+      
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+    } else {
+      setPreviewUrl(null);
+      setLogoDataUrl(null);
+    }
+  }, [candidateForm.logoFile]);
   const [confirm, setConfirm] = useState<{ message: string; action: () => void } | null>(null);
 
   async function handleCreate(e: React.FormEvent) {
@@ -91,11 +117,25 @@ export default function ElectionManager() {
   }
 
   async function handleAddCandidate(electionId: string) {
-    await addCandidate(electionId, {
-      frontName: candidateForm.frontName, candidateName: candidateForm.candidateName,
-      position: candidateForm.position, mission: candidateForm.mission || undefined, photoUrl: candidateForm.photoUrl || undefined,
-    });
-    setCandidateForm({ frontName: '', candidateName: '', position: '', mission: '', photoUrl: '' });
+    console.log('Agregando candidato...', { electionId, candidateForm, previewUrl, logoDataUrl });
+    
+    // Usar logoDataUrl (base64) si existe, sino logoFrente (URL externa)
+    const logoUrl = logoDataUrl || candidateForm.logoFrente || undefined;
+
+    try {
+      await addCandidate(electionId, {
+        frontName: candidateForm.frontName,
+        candidateName: candidateForm.candidateName,
+        position: candidateForm.position,
+        mission: candidateForm.mission || undefined,
+        photoUrl: candidateForm.photoUrl || undefined,
+        logoFrente: logoUrl,
+      });
+      console.log('Candidato agregado exitosamente');
+      setCandidateForm({ frontName: '', candidateName: '', position: '', mission: '', photoUrl: '', logoFrente: '', logoFile: null });
+    } catch (error) {
+      console.error('Error al agregar candidato:', error);
+    }
   }
 
   if (loading) return (
@@ -300,6 +340,7 @@ export default function ElectionManager() {
                   setCandidateForm={setCandidateForm}
                   onAdd={() => handleAddCandidate(election.id)}
                   onRemove={(cid) => confirmAction('¿Eliminar este candidato?', () => removeCandidate(election.id, cid))}
+                  previewUrl={previewUrl}
                 />
               )}
             </div>
@@ -318,13 +359,14 @@ export default function ElectionManager() {
   );
 }
 
-function CandidatePanel({ election, users, candidateForm, setCandidateForm, onAdd, onRemove }: {
+function CandidatePanel({ election, users, candidateForm, setCandidateForm, onAdd, onRemove, previewUrl }: {
   election: Election;
   users: User[];
-  candidateForm: { frontName: string; candidateName: string; position: Candidate['position']; mission: string; photoUrl: string; };
+  candidateForm: { frontName: string; candidateName: string; position: Candidate['position']; mission: string; photoUrl: string; logoFrente: string; logoFile: File | null; };
   setCandidateForm: React.Dispatch<React.SetStateAction<typeof candidateForm>>;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  previewUrl: string | null;
 }) {
   const candidates = election.candidates ?? [];
 
@@ -467,11 +509,75 @@ function CandidatePanel({ election, users, candidateForm, setCandidateForm, onAd
               />
             ))}
 
+            {/* Logo del frente - Input file con preview */}
+            <div className="sm:col-span-2 flex flex-col gap-2">
+              <label className="text-[11px] font-semibold" style={{ color: 'var(--text-3)' }}>
+                Logo del frente (opcional)
+              </label>
+              <div className="flex gap-3 items-start">
+                {/* Preview del logo */}
+                {(previewUrl || candidateForm.logoFrente) && (
+                  <div className="w-16 h-16 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-white overflow-hidden shrink-0">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt="Logo preview" className="w-full h-full object-contain" />
+                    ) : candidateForm.logoFrente.startsWith('http') ? (
+                      <img src={candidateForm.logoFrente} alt="Logo" className="w-full h-full object-contain" />
+                    ) : (
+                      <img src={candidateForm.logoFrente} alt="Logo" className="w-full h-full object-contain" />
+                    )}
+                  </div>
+                )}
+                
+                {/* Input file */}
+                <div className="flex-1 flex flex-col gap-2">
+                  <label
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold cursor-pointer transition-all border-2 border-dashed"
+                    style={{ 
+                      background: 'var(--surface)', 
+                      borderColor: candidateForm.logoFile ? 'var(--brand)' : 'var(--border)',
+                      color: candidateForm.logoFile ? 'var(--brand)' : 'var(--text-3)'
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setCandidateForm((f) => ({ ...f, logoFile: file, logoFrente: '' }));
+                      }}
+                    />
+                    📁 {candidateForm.logoFile ? 'Cambiar logo' : 'Seleccionar logo'}
+                  </label>
+                  {candidateForm.logoFile && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-red-600 font-semibold hover:text-red-700 transition-colors self-start"
+                      onClick={() => setCandidateForm((f) => ({ ...f, logoFile: null, logoFrente: '' }))}
+                    >
+                      ✕ Eliminar logo
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px]" style={{ color: 'var(--text-4)' }}>
+                Formatos: PNG, JPG, SVG. Máx 2MB.
+              </p>
+            </div>
+
             <button
               className="sm:col-span-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: 'var(--brand)' }}
               disabled={!candidateForm.candidateName || !candidateForm.position || !candidateForm.frontName}
-              onClick={onAdd}
+              onClick={(e) => {
+                e.preventDefault();
+                console.log('Button clicked!', { 
+                  candidateName: candidateForm.candidateName, 
+                  position: candidateForm.position, 
+                  frontName: candidateForm.frontName 
+                });
+                onAdd();
+              }}
             >
               <Plus size={12} />
               Agregar candidato

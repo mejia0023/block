@@ -1,13 +1,13 @@
 #!/bin/bash
 # setup.sh — Levanta la red Hyperledger Fabric y despliega el chaincode evoting-cc
-# Prerequisitos: cryptogen, configtxgen en PATH + Docker corriendo
-# En Windows: ejecutar desde WSL2 o Git Bash con Docker Desktop
+# Prerequisito: Docker corriendo (Docker Desktop en Windows)
+# Ejecutar desde Git Bash en la raiz de fabric/network
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NETWORK_DIR="$(dirname "$SCRIPT_DIR")"
-CHAINCODE_DIR="$(dirname "$NETWORK_DIR")/chaincode/evoting"
+CHAINCODE_DIR="$(dirname "$(dirname "$NETWORK_DIR")")/chaincode"
 
 CHANNEL_NAME="evoting"
 CC_NAME="evoting-cc"
@@ -21,47 +21,64 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 log()   { echo -e "${GREEN}[SETUP]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# ── 0. Verificar herramientas ──────────────────────────────────────────────
-for tool in cryptogen configtxgen docker; do
-    command -v "$tool" &>/dev/null || error "$tool no encontrado. Instala Fabric binaries: https://hyperledger-fabric.readthedocs.io/en/release-2.5/install.html"
-done
+# Evitar que Git Bash convierta rutas /algo/... a C:/Program Files/Git/algo/...
+export MSYS_NO_PATHCONV=1
 
-# ── 1. Generar material criptográfico ─────────────────────────────────────
-log "Generando material criptográfico..."
+# ── 0. Verificar Docker ────────────────────────────────────────────────────
+command -v docker &>/dev/null || error "docker no encontrado."
+WIN_NETWORK_DIR=$(cygpath -m "$NETWORK_DIR" 2>/dev/null || echo "$NETWORK_DIR")
+
+# ── 1. Limpiar estado previo ───────────────────────────────────────────────
+log "Limpiando estado anterior..."
 cd "$NETWORK_DIR"
-rm -rf crypto-material
-cryptogen generate --config=crypto-config.yaml --output=crypto-material
+docker-compose down -v --remove-orphans 2>/dev/null || true
+rm -rf crypto-material channel-artifacts .configtx-local
 
-# ── 2. Generar artefactos del canal ───────────────────────────────────────
+# ── 2. Generar material criptográfico (via Docker, genera paths Linux) ─────
+log "Generando material criptográfico..."
+docker run --rm \
+    -v "${WIN_NETWORK_DIR}:/network" \
+    hyperledger/fabric-tools:2.5 \
+    cryptogen generate --config=/network/crypto-config.yaml --output=/network/crypto-material
+
+# ── 3. Generar artefactos del canal (via Docker) ───────────────────────────
 log "Generando genesis block y canal..."
 mkdir -p channel-artifacts
 
-export FABRIC_CFG_PATH="$NETWORK_DIR"
+docker run --rm \
+    -v "${WIN_NETWORK_DIR}:/network" \
+    -v "${WIN_NETWORK_DIR}/crypto-material:/crypto" \
+    -e FABRIC_CFG_PATH=/network \
+    hyperledger/fabric-tools:2.5 \
+    configtxgen -profile EvotingOrdererGenesis -channelID system-channel \
+    -outputBlock /network/channel-artifacts/genesis.block
 
-configtxgen \
-    -profile EvotingOrdererGenesis \
-    -channelID system-channel \
-    -outputBlock channel-artifacts/genesis.block
-
-configtxgen \
-    -profile EvotingChannel \
-    -outputCreateChannelTx "channel-artifacts/${CHANNEL_NAME}.tx" \
+docker run --rm \
+    -v "${WIN_NETWORK_DIR}:/network" \
+    -v "${WIN_NETWORK_DIR}/crypto-material:/crypto" \
+    -e FABRIC_CFG_PATH=/network \
+    hyperledger/fabric-tools:2.5 \
+    configtxgen -profile EvotingChannel \
+    -outputCreateChannelTx "/network/channel-artifacts/${CHANNEL_NAME}.tx" \
     -channelID "$CHANNEL_NAME"
 
-configtxgen \
-    -profile EvotingChannel \
-    -outputAnchorPeersUpdate channel-artifacts/FICCTOrgMSPanchors.tx \
-    -channelID "$CHANNEL_NAME" \
-    -asOrg FICCTOrg
+docker run --rm \
+    -v "${WIN_NETWORK_DIR}:/network" \
+    -v "${WIN_NETWORK_DIR}/crypto-material:/crypto" \
+    -e FABRIC_CFG_PATH=/network \
+    hyperledger/fabric-tools:2.5 \
+    configtxgen -profile EvotingChannel \
+    -outputAnchorPeersUpdate /network/channel-artifacts/FICCTOrgMSPanchors.tx \
+    -channelID "$CHANNEL_NAME" -asOrg FICCTOrg
 
-# ── 3. Compilar chaincode ─────────────────────────────────────────────────
+# ── 4. Compilar chaincode ─────────────────────────────────────────────────
 log "Compilando chaincode TypeScript..."
 cd "$CHAINCODE_DIR"
 npm install
 npm run build
 log "Chaincode compilado en dist/"
 
-# ── 4. Levantar contenedores Docker ───────────────────────────────────────
+# ── 5. Levantar contenedores Docker ───────────────────────────────────────
 log "Iniciando contenedores Docker..."
 cd "$NETWORK_DIR"
 docker-compose up -d
@@ -69,20 +86,17 @@ docker-compose up -d
 log "Esperando que los contenedores inicien (30s)..."
 sleep 30
 
-# Esperar a que el peer responda antes de continuar
 log "Verificando que el peer está listo..."
 for i in $(seq 1 12); do
     if docker exec cli peer node status 2>/dev/null | grep -q "status:STARTED\|Successfully\|running"; then
-        break
-    fi
-    if docker exec cli bash -c "cat /dev/tcp/peer0.ficct.edu.bo/7051" 2>/dev/null; then
+        log "Peer listo."
         break
     fi
     echo "  Intento $i/12 — esperando peer (5s)..."
     sleep 5
 done
 
-# ── 5. Crear y unirse al canal ────────────────────────────────────────────
+# ── 6. Crear y unirse al canal ────────────────────────────────────────────
 log "Creando canal '$CHANNEL_NAME'..."
 docker exec cli peer channel create \
     -o orderer.ficct.edu.bo:7050 \
@@ -91,7 +105,6 @@ docker exec cli peer channel create \
     --tls --cafile "$ORDERER_CA" \
     --outputBlock "/channel-artifacts/${CHANNEL_NAME}.block" || true
 
-# Retry join hasta 5 veces
 log "Uniéndose al canal..."
 for i in $(seq 1 5); do
     docker exec cli peer channel join \
@@ -107,7 +120,7 @@ docker exec cli peer channel update \
     -f /channel-artifacts/FICCTOrgMSPanchors.tx \
     --tls --cafile "$ORDERER_CA"
 
-# ── 6. Empaquetar e instalar chaincode ────────────────────────────────────
+# ── 7. Empaquetar e instalar chaincode ────────────────────────────────────
 log "Verificando imagen fabric-nodeenv..."
 docker image inspect hyperledger/fabric-nodeenv:2.5 > /dev/null 2>&1 \
     || docker pull hyperledger/fabric-nodeenv:2.5 \
@@ -116,14 +129,14 @@ docker image inspect hyperledger/fabric-nodeenv:2.5 > /dev/null 2>&1 \
 log "Empaquetando chaincode..."
 docker exec cli peer lifecycle chaincode package \
     "/tmp/${CC_NAME}.tar.gz" \
-    --path "/chaincode/evoting" \
+    --path "/chaincode" \
     --lang node \
     --label "${CC_NAME}_${CC_VERSION}"
 
 log "Instalando chaincode..."
 docker exec cli peer lifecycle chaincode install "/tmp/${CC_NAME}.tar.gz"
 
-# ── 7. Obtener Package ID ─────────────────────────────────────────────────
+# ── 8. Obtener Package ID ─────────────────────────────────────────────────
 sleep 3
 PACKAGE_ID=$(docker exec cli peer lifecycle chaincode queryinstalled 2>&1 \
     | grep "${CC_NAME}_${CC_VERSION}" \
@@ -134,7 +147,7 @@ PACKAGE_ID=$(docker exec cli peer lifecycle chaincode queryinstalled 2>&1 \
 [ -z "$PACKAGE_ID" ] && error "No se pudo obtener el Package ID del chaincode"
 log "Package ID: $PACKAGE_ID"
 
-# ── 8. Aprobar y confirmar chaincode ──────────────────────────────────────
+# ── 9. Aprobar y confirmar chaincode ──────────────────────────────────────
 log "Aprobando chaincode para FICCTOrg..."
 docker exec cli peer lifecycle chaincode approveformyorg \
     -o orderer.ficct.edu.bo:7050 \
@@ -156,7 +169,7 @@ docker exec cli peer lifecycle chaincode commit \
     --peerAddresses peer0.ficct.edu.bo:7051 \
     --tlsRootCertFiles "$PEER_TLS_ROOTCERT"
 
-# ── 9. Verificar ──────────────────────────────────────────────────────────
+# ── 10. Verificar ─────────────────────────────────────────────────────────
 log "Verificando chaincode committed..."
 docker exec cli peer lifecycle chaincode querycommitted \
     --channelID "$CHANNEL_NAME" \

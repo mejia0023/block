@@ -64,7 +64,7 @@ let VotingContract = class VotingContract extends fabric_contract_api_1.Contract
         const txId = ctx.stub.getTxID();
         const ts = ctx.stub.getTxTimestamp();
         const timestamp = new Date((ts.seconds.toNumber() * 1000) + Math.floor(ts.nanos / 1e6)).toISOString();
-        // 3. Persist vote asset
+        //Paso 3 — Persiste el voto (línea 83–91)
         const vote = {
             assetType: 'vote',
             id: voteId,
@@ -76,6 +76,7 @@ let VotingContract = class VotingContract extends fabric_contract_api_1.Contract
         await ctx.stub.putState(voteKey(voteId), Buffer.from(JSON.stringify(vote)));
         // 4. Update tally atomically in same transaction
         await this._incrementTally(ctx, electionId, candidateId, timestamp);
+        //  Devuelve el txId de Fabric (línea 96) — ese es el recibo que NestJS guarda en blockchain_sync_logs y entrega al votante.
         return txId;
     }
     // ── getResultados ───────────────────────────────────────────────────────────

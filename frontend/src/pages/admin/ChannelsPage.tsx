@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Layers, PlusCircle, Loader2, AlertCircle, ChevronDown, ChevronUp, CheckCircle2, Circle } from 'lucide-react';
+import {
+  Layers, PlusCircle, Loader2, AlertCircle, ChevronDown, ChevronUp,
+  CheckCircle2, Circle, Server, Rocket,
+} from 'lucide-react';
 import api from '../../api/axios.config';
 
 interface FabricChannel {
@@ -10,23 +13,40 @@ interface FabricChannel {
   creadoEn: string;
 }
 
+interface FabricNode {
+  id: string;
+  nombre: string;
+  endpoint: string;
+  hostAlias: string;
+  activo: boolean;
+  cryptoReady?: boolean;
+}
+
 const emptyForm = { nombre: '', descripcion: '' };
 
 export default function ChannelsPage() {
   const [channels, setChannels]     = useState<FabricChannel[]>([]);
+  const [nodes, setNodes]           = useState<FabricNode[]>([]);
   const [loading, setLoading]       = useState(true);
   const [showForm, setShowForm]     = useState(false);
   const [form, setForm]             = useState(emptyForm);
   const [creating, setCreating]     = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [logs, setLogs]             = useState<string | null>(null);
+  const [logsTitle, setLogsTitle]   = useState('Logs');
   const [showLogs, setShowLogs]     = useState(false);
+  const [selectedNodeByChannel, setSelectedNodeByChannel] = useState<Record<string, string>>({});
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<FabricChannel[]>('/channels');
-      setChannels(data);
+      const [{ data: channelData }, { data: nodeData }] = await Promise.all([
+        api.get<FabricChannel[]>('/channels'),
+        api.get<FabricNode[]>('/nodes'),
+      ]);
+      setChannels(channelData);
+      setNodes(nodeData);
     } catch {
       setError('Error cargando canales');
     } finally {
@@ -46,6 +66,7 @@ export default function ChannelsPage() {
         nombre: form.nombre,
         descripcion: form.descripcion || undefined,
       });
+      setLogsTitle(`Creación: ${data.channel.nombre}`);
       setLogs(data.logs);
       setShowLogs(true);
       setForm(emptyForm);
@@ -60,6 +81,55 @@ export default function ChannelsPage() {
       setCreating(false);
     }
   }
+
+  async function handleJoinPeer(channelName: string) {
+    const nodeId = selectedNodeByChannel[channelName];
+    if (!nodeId) {
+      setError('Selecciona un peer activo para unirlo al canal');
+      return;
+    }
+
+    setBusyAction(`join:${channelName}`);
+    setError(null);
+    try {
+      const { data } = await api.post<{ logs: string }>(`/channels/${channelName}/peers/${nodeId}`);
+      setLogsTitle(`Unir peer: ${channelName}`);
+      setLogs(data.logs);
+      setShowLogs(true);
+      await load();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message ?? 'Error al unir peer al canal';
+      setError(msg);
+      setLogsTitle(`Error uniendo peer: ${channelName}`);
+      setLogs(msg);
+      setShowLogs(true);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleDeployChaincode(channelName: string) {
+    setBusyAction(`cc:${channelName}`);
+    setError(null);
+    try {
+      const { data } = await api.post<{ logs: string }>(`/channels/${channelName}/chaincode`);
+      setLogsTitle(`Chaincode: ${channelName}`);
+      setLogs(data.logs);
+      setShowLogs(true);
+      await load();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message ?? 'Error al desplegar chaincode';
+      setError(msg);
+      setLogsTitle(`Error chaincode: ${channelName}`);
+      setLogs(msg);
+      setShowLogs(true);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  const activeNodes = nodes.filter((node) => node.activo && node.cryptoReady !== false);
+  const invalidActiveNodes = nodes.filter((node) => node.activo && node.cryptoReady === false);
 
   return (
     <div className="flex flex-col gap-6 animate-slide-up max-w-4xl">
@@ -128,6 +198,15 @@ export default function ChannelsPage() {
             </div>
           )}
 
+          {invalidActiveNodes.length > 0 && (
+            <div className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}>
+              <AlertCircle size={13} className="shrink-0 mt-0.5" />
+              <span>
+                {invalidActiveNodes.length} peer(s) activos no tienen certificados TLS y serán omitidos: {invalidActiveNodes.map((node) => node.nombre).join(', ')}.
+              </span>
+            </div>
+          )}
+
           {creating && (
             <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2" style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
               <Loader2 size={13} className="animate-spin shrink-0" />
@@ -164,7 +243,7 @@ export default function ChannelsPage() {
             className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold cursor-pointer border-0"
             style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
           >
-            <span>Logs de creación</span>
+              <span>{logsTitle}</span>
             {showLogs ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
           {showLogs && (
@@ -193,7 +272,7 @@ export default function ChannelsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
-                {['Estado', 'Canal', 'Descripción', 'Creado'].map((h) => (
+                {['Estado', 'Canal', 'Descripción', 'Creado', 'Operaciones'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
                     {h}
                   </th>
@@ -233,6 +312,48 @@ export default function ChannelsPage() {
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-3)' }}>
                     {new Date(ch.creadoEn).toLocaleDateString('es-BO')}
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-2 min-w-[240px]">
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedNodeByChannel[ch.nombre] ?? ''}
+                          onChange={(e) => setSelectedNodeByChannel({
+                            ...selectedNodeByChannel,
+                            [ch.nombre]: e.target.value,
+                          })}
+                          className="min-w-0 flex-1 rounded-lg px-2 py-1.5 text-xs"
+                          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-1)' }}
+                        >
+                          <option value="">Peer activo…</option>
+                          {activeNodes.map((node) => (
+                            <option key={node.id} value={node.id}>
+                              {node.nombre} ({node.endpoint})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleJoinPeer(ch.nombre)}
+                          disabled={busyAction === `join:${ch.nombre}` || activeNodes.length === 0}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold border-0 cursor-pointer disabled:opacity-50"
+                          style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
+                          title="Unir peer seleccionado al canal"
+                        >
+                          {busyAction === `join:${ch.nombre}` ? <Loader2 size={12} className="animate-spin" /> : <Server size={12} />}
+                          Unir
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleDeployChaincode(ch.nombre)}
+                        disabled={busyAction === `cc:${ch.nombre}` || activeNodes.length === 0}
+                        className="flex items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold text-white border-0 cursor-pointer disabled:opacity-50"
+                        style={{ background: 'var(--brand)' }}
+                        title="Instalar, aprobar y confirmar chaincode en este canal"
+                      >
+                        {busyAction === `cc:${ch.nombre}` ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
+                        Desplegar chaincode
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -241,7 +362,7 @@ export default function ChannelsPage() {
       </div>
 
       <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-        Al crear una elección, selecciona el canal donde se registrarán sus votos en blockchain.
+        Flujo correcto: crear canal, unir peers activos, desplegar chaincode y recién usar ese canal en una elección.
       </p>
     </div>
   );

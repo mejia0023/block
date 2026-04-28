@@ -33,6 +33,7 @@ export default function NodesPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [actionLogs, setActionLogs] = useState<{ title: string; text: string } | null>(null);
   const [showActionLogs, setShowActionLogs] = useState(false);
+  const [loadingPort, setLoadingPort] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,6 +48,23 @@ export default function NodesPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function openAddForm() {
+    setShowDeploy(false);
+    setError(null);
+    const opening = !showAdd;
+    setShowAdd((v) => !v);
+    if (!opening) return;
+    setLoadingPort(true);
+    try {
+      const { data } = await api.get<{ port: number; endpoint: string; hostAlias: string; nombre: string }>('/nodes/free-port');
+      setAddForm({ nombre: data.nombre, endpoint: data.endpoint, hostAlias: data.hostAlias });
+    } catch {
+      setAddForm(emptyAddForm);
+    } finally {
+      setLoadingPort(false);
+    }
+  }
 
   async function handleAdd() {
     if (!addForm.nombre || !addForm.endpoint || !addForm.hostAlias) return;
@@ -115,6 +133,8 @@ export default function NodesPage() {
     }
   }
 
+  const activeNodes = nodes.filter((node) => node.activo);
+
   return (
     <div className="flex flex-col gap-6 animate-slide-up max-w-4xl">
 
@@ -136,7 +156,7 @@ export default function NodesPage() {
             Desplegar Peer
           </button>
           <button
-            onClick={() => { setShowAdd((v) => !v); setShowDeploy(false); setError(null); }}
+            onClick={openAddForm}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-opacity hover:opacity-90"
             style={{ background: 'var(--brand)' }}
           >
@@ -146,13 +166,33 @@ export default function NodesPage() {
         </div>
       </div>
 
+      {!loading && nodes.length > 0 && activeNodes.length === 0 && (
+        <div className="flex items-start gap-3 rounded-2xl px-4 py-3 bg-amber-50 border border-amber-200 text-amber-800">
+          <AlertCircle size={18} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black uppercase tracking-tight">Fabric sin nodos activos</p>
+            <p className="text-xs mt-1">
+              El backend corta la conexión con la red Fabric. Las operaciones electorales usarán contingencia local hasta activar un nodo.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Formulario: Agregar nodo existente ── */}
       {showAdd && (
         <div
           className="rounded-2xl p-6 flex flex-col gap-4"
           style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow)' }}
         >
-          <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Registrar peer existente</h3>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Registrar peer existente</h3>
+              {loadingPort && <Loader2 size={13} className="animate-spin" style={{ color: 'var(--text-3)' }} />}
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+              Solo para peers que ya están corriendo en Docker. Si quieres crear uno nuevo, usa <strong>Desplegar Peer</strong>.
+            </p>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[
               { label: 'Nombre',     key: 'nombre',    ph: 'peer2' },
@@ -165,15 +205,16 @@ export default function NodesPage() {
                   value={(addForm as any)[key]}
                   onChange={(e) => setAddForm({ ...addForm, [key]: e.target.value })}
                   placeholder={ph}
+                  disabled={loadingPort}
                   className="rounded-lg px-3 py-2 text-sm"
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-1)' }}
+                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-1)', opacity: loadingPort ? 0.6 : 1 }}
                 />
               </div>
             ))}
           </div>
           {error && <ErrorBanner msg={error} />}
           <FormActions
-            onCancel={() => { setShowAdd(false); setAddForm(emptyAddForm); setError(null); }}
+            onCancel={() => { setShowAdd(false); setAddForm(emptyAddForm); setError(null); setLoadingPort(false); }}
             onSubmit={handleAdd}
             submitting={saving}
             disabled={saving || !addForm.nombre || !addForm.endpoint || !addForm.hostAlias}
@@ -191,7 +232,7 @@ export default function NodesPage() {
           <div>
             <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Desplegar nuevo peer</h3>
             <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>
-              Genera certificados, inicia Docker y une el peer al canal automáticamente (~2 min).
+              Genera certificados, inicia Docker, une al canal y <strong>registra automáticamente</strong> el nodo. No uses "Agregar Nodo" para el mismo peer.
             </p>
           </div>
           <div className="flex flex-col gap-1 max-w-xs">
@@ -327,7 +368,7 @@ export default function NodesPage() {
       </div>
 
       <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-        Al agregar o activar un nodo, el backend se reconecta automáticamente al peer de mayor prioridad activo.
+        Al activar un nodo, el backend se reconecta al peer activo de mayor prioridad. Si todos están inactivos, Fabric queda desconectado.
       </p>
     </div>
   );

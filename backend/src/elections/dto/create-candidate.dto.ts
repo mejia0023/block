@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
 
 export class CreateCandidateDto {
   @IsUUID()
@@ -18,4 +18,10 @@ export class CreateCandidateDto {
 
   @IsOptional() @IsString()
   mission?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => o.logoFrente && !o.logoFrente.startsWith('data:'))
+  @IsString()
+  @Length(1, 100)
+  logoFrente?: string;
 }

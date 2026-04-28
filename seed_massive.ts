@@ -7,7 +7,7 @@ async function seed() {
         host: 'localhost',
         port: 5432,
         user: 'postgres',
-        password: 'muerte',
+        password: '7814',
         database: 'evoting_db',
     });
 
@@ -25,7 +25,15 @@ async function seed() {
         await client.query('DELETE FROM candidatos');
         await client.query('DELETE FROM elecciones');
         await client.query("DELETE FROM usuarios WHERE identificador != 'admin'");
+        await client.query("DELETE FROM organizaciones WHERE id = $1", [ORG_ID]);
         console.log('Tablas limpiadas.');
+
+        // 1.5 Crear organización
+        await client.query(
+            `INSERT INTO organizaciones (id, nombre, slug) VALUES ($1, $2, $3)`,
+            [ORG_ID, 'UAGRM', 'uagrm']
+        );
+        console.log('Organización creada.');
 
         // 2. Crear 100 Usuarios
         console.log('Generando 100 usuarios...');

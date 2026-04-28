@@ -10,7 +10,7 @@ import * as https from 'node:https';
 import * as path from 'node:path';
 import { RegisterIdentityDto } from './dto/register-identity.dto';
 
-const CA_URL     = process.env.FABRIC_CA_URL     ?? 'https://localhost:7054';
+const CA_URL      = process.env.FABRIC_CA_URL ?? 'https://localhost:7054';
 const CRYPTO_BASE = process.env.FABRIC_CRYPTO_PATH
   ?? path.resolve(__dirname, '../../../../fabric/network/crypto-material');
 
@@ -59,57 +59,14 @@ export class CaService {
 
   private async getHttp(): Promise<AxiosInstance> {
     if (this.http) return this.http;
-
     let caCert: Buffer | undefined;
-    try {
-      caCert = await fs.readFile(CA_TLS_CERT);
-    } catch {
-      this.logger.warn('CA TLS cert not found — skipping TLS verification');
-    }
-
+    try { caCert = await fs.readFile(CA_TLS_CERT); } catch { /* skip */ }
     this.http = axios.create({
       baseURL: CA_URL,
-      timeout: 10_000,
-      httpsAgent: new https.Agent({
-        ca: caCert,
-        rejectUnauthorized: !!caCert,
-      }),
+      timeout: 8_000,
+      httpsAgent: new https.Agent({ ca: caCert, rejectUnauthorized: !!caCert }),
     });
     return this.http;
-  }
-
-  // Fabric CA token: base64(certDER) + "." + base64(ECDSA_sign(base64(body) + "." + base64(certDER)))
-  private async buildAuthToken(bodyJson = ''): Promise<string> {
-    const certFiles = await fs.readdir(ADMIN_CERT_DIR);
-    if (!certFiles.length) throw new Error('Admin cert not found');
-    const certPem = await fs.readFile(path.join(ADMIN_CERT_DIR, certFiles[0]), 'utf8');
-
-    const keyFiles = await fs.readdir(ADMIN_KEY_DIR);
-    if (!keyFiles.length) throw new Error('Admin key not found');
-    const keyPem  = await fs.readFile(path.join(ADMIN_KEY_DIR, keyFiles[0]));
-    const privKey = crypto.createPrivateKey(keyPem);
-
-    // Strip PEM headers to get raw base64 DER
-    const b64Cert = certPem
-      .replace(/-----[A-Z ]+-----/g, '')
-      .replace(/\s/g, '');
-
-    const b64Body   = Buffer.from(bodyJson).toString('base64');
-    const payload   = Buffer.from(`${b64Body}.${b64Cert}`);
-    const sign      = crypto.createSign('SHA256');
-    sign.update(payload);
-    const b64Sig    = sign.sign(privKey, 'base64');
-
-    return `${b64Cert}.${b64Sig}`;
-  }
-
-  private wrap<T>(res: any): T {
-    if (!res.data?.success) {
-      throw new ServiceUnavailableException(
-        res.data?.errors?.[0]?.message ?? 'CA request failed',
-      );
-    }
-    return res.data.result as T;
   }
 
   async getInfo(): Promise<CaInfo> {
@@ -118,39 +75,105 @@ export class CaService {
       const res  = await http.get('/api/v1/cainfo');
       const r    = res.data?.result ?? {};
       return {
-        caName:         r.CAName         ?? 'ca-ficct',
-        caChain:        r.CAChain        ?? '',
+        caName:          r.CAName          ?? 'ca-ficct',
+        caChain:         r.CAChain         ?? '',
         issuerPublicKey: r.IssuerPublicKey ?? '',
-        version:        r.Version        ?? '',
+        version:         r.Version         ?? '',
       };
     } catch (err: any) {
       this.logger.error(`CA info failed: ${err.message}`);
-      throw new ServiceUnavailableException('CA no disponible');
+      throw new ServiceUnavailableException('CA no disponible — asegúrate de que el contenedor ca.ficct.edu.bo esté corriendo');
     }
   }
 
+  // ── Identities: leídas del crypto-material del sistema de archivos ──────────
+  // La Fabric CA requiere que el token de autenticación use un cert emitido por
+  // esa misma CA (no por cryptogen). Como la red usa cryptogen, leemos las
+  // identidades directamente del directorio crypto-material.
   async listIdentities(): Promise<FabricIdentity[]> {
+    const result: FabricIdentity[] = [];
+    const peerOrgDir    = path.join(CRYPTO_BASE, 'peerOrganizations', 'ficct.edu.bo');
+    const ordererOrgDir = path.join(CRYPTO_BASE, 'ordererOrganizations', 'ficct.edu.bo');
+
+    const add = (id: string, type: string, maxE = -1) =>
+      result.push({ id, type, affiliation: 'ficct.edu.bo', maxEnrollments: maxE, attrs: [] });
+
+    // Users (Admin + User1)
     try {
-      const http  = await this.getHttp();
-      const token = await this.buildAuthToken();
-      const res   = await http.get('/api/v1/identities', {
-        headers: { Authorization: token },
-      });
-      return (this.wrap<{ identities: any[] }>(res).identities ?? []).map(
-        (i: any) => ({
-          id:             i.id,
-          type:           i.type,
-          affiliation:    i.affiliation,
-          maxEnrollments: i.max_enrollments,
-          attrs:          i.attrs ?? [],
-        }),
+      const users = await fs.readdir(path.join(peerOrgDir, 'users'));
+      for (const u of users) add(u, u.startsWith('Admin') ? 'admin' : 'client');
+    } catch { /* crypto-material not found */ }
+
+    // Peers
+    try {
+      const peers = await fs.readdir(path.join(peerOrgDir, 'peers'));
+      for (const p of peers) add(p, 'peer', 1);
+    } catch { /* skip */ }
+
+    // Orderers
+    try {
+      const orderers = await fs.readdir(path.join(ordererOrgDir, 'orderers'));
+      for (const o of orderers) add(o, 'orderer', 1);
+    } catch { /* skip */ }
+
+    if (result.length === 0) {
+      throw new ServiceUnavailableException(
+        'No se encontró crypto-material. Ejecuta restart-network.ps1 primero.',
       );
-    } catch (err: any) {
-      this.logger.error(`List identities failed: ${err.message}`);
-      throw new ServiceUnavailableException('No se pudo obtener identidades de la CA');
     }
+    return result;
   }
 
+  // ── Certificates: parsed from PEM files in crypto-material ─────────────────
+  async listCertificates(): Promise<FabricCertificate[]> {
+    const result: FabricCertificate[] = [];
+    const peerOrgDir = path.join(CRYPTO_BASE, 'peerOrganizations', 'ficct.edu.bo');
+
+    const readCert = async (certPath: string, id: string): Promise<FabricCertificate | null> => {
+      try {
+        const pem  = await fs.readFile(certPath, 'utf8');
+        const x509 = new crypto.X509Certificate(pem);
+        return {
+          id,
+          serial:    x509.serialNumber,
+          pem,
+          notAfter:  x509.validTo,
+          notBefore: x509.validFrom,
+          revoked:   false,
+        };
+      } catch { return null; }
+    };
+
+    const scanSigncerts = async (baseDir: string, entries: string[], id: (e: string) => string) => {
+      for (const entry of entries) {
+        const signcertsDir = path.join(baseDir, entry, 'msp', 'signcerts');
+        try {
+          const files = await fs.readdir(signcertsDir);
+          for (const f of files) {
+            if (!f.endsWith('.pem')) continue;
+            const cert = await readCert(path.join(signcertsDir, f), id(entry));
+            if (cert) result.push(cert);
+          }
+        } catch { /* dir missing */ }
+      }
+    };
+
+    try {
+      const users = await fs.readdir(path.join(peerOrgDir, 'users')).catch(() => [] as string[]);
+      await scanSigncerts(path.join(peerOrgDir, 'users'), users, u => u);
+
+      const peers = await fs.readdir(path.join(peerOrgDir, 'peers')).catch(() => [] as string[]);
+      await scanSigncerts(path.join(peerOrgDir, 'peers'), peers, p => p);
+    } catch (err: any) {
+      this.logger.error(`listCertificates failed: ${err.message}`);
+      throw new ServiceUnavailableException('No se pudo leer los certificados del crypto-material');
+    }
+
+    return result;
+  }
+
+  // ── Register identity via Fabric CA REST API ───────────────────────────────
+  // Requiere que la CA esté corriendo y que el admin haya sido enrolado.
   async registerIdentity(dto: RegisterIdentityDto): Promise<{ secret: string }> {
     const body = JSON.stringify({
       id:              dto.id,
@@ -170,7 +193,8 @@ export class CaService {
     } catch (err: any) {
       this.logger.error(`Register identity failed: ${err.message}`);
       throw new ServiceUnavailableException(
-        err.response?.data?.errors?.[0]?.message ?? 'Error al registrar identidad',
+        err.response?.data?.errors?.[0]?.message
+          ?? 'Error al registrar identidad. Nota: esta operación requiere que la CA tenga el admin enrolado.',
       );
     }
   }
@@ -189,25 +213,34 @@ export class CaService {
     }
   }
 
-  async listCertificates(): Promise<FabricCertificate[]> {
-    try {
-      const http  = await this.getHttp();
-      const token = await this.buildAuthToken();
-      const res   = await http.get('/api/v1/certificates', {
-        headers: { Authorization: token },
-      });
-      const certs: any[] = this.wrap<{ certs: any[] }>(res).certs ?? [];
-      return certs.map((c) => ({
-        id:        c.id       ?? '',
-        serial:    c.serial_number ?? '',
-        pem:       c.pem      ?? '',
-        notAfter:  c.not_after  ?? '',
-        notBefore: c.not_before ?? '',
-        revoked:   !!c.revoked,
-      }));
-    } catch (err: any) {
-      this.logger.error(`List certificates failed: ${err.message}`);
-      throw new ServiceUnavailableException('No se pudo obtener certificados de la CA');
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  private async buildAuthToken(bodyJson = ''): Promise<string> {
+    const certFiles = await fs.readdir(ADMIN_CERT_DIR);
+    if (!certFiles.length) throw new Error('Admin cert not found');
+    const certPem = await fs.readFile(path.join(ADMIN_CERT_DIR, certFiles[0]), 'utf8');
+
+    const keyFiles = await fs.readdir(ADMIN_KEY_DIR);
+    if (!keyFiles.length) throw new Error('Admin key not found');
+    const keyPem   = await fs.readFile(path.join(ADMIN_KEY_DIR, keyFiles[0]));
+    const privKey  = crypto.createPrivateKey(keyPem);
+
+    const b64Cert  = certPem.replace(/-----[A-Z ]+-----/g, '').replace(/\s/g, '');
+    const b64Body  = Buffer.from(bodyJson).toString('base64');
+    const payload  = Buffer.from(`${b64Body}.${b64Cert}`);
+    const sign     = crypto.createSign('SHA256');
+    sign.update(payload);
+    const b64Sig   = sign.sign(privKey, 'base64');
+
+    return `${b64Cert}.${b64Sig}`;
+  }
+
+  private wrap<T>(res: any): T {
+    if (!res.data?.success) {
+      throw new ServiceUnavailableException(
+        res.data?.errors?.[0]?.message ?? 'CA request failed',
+      );
     }
+    return res.data.result as T;
   }
 }

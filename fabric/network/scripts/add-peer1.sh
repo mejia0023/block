@@ -75,7 +75,7 @@ log "peer1 unido al canal"
 log "Empaquetando chaincode..."
 docker exec cli peer lifecycle chaincode package \
     "/tmp/${CC_NAME}_peer1.tar.gz" \
-    --path "/chaincode/evoting" \
+    --path "/chaincode" \
     --lang node \
     --label "${CC_NAME}_${CC_VERSION}"
 
